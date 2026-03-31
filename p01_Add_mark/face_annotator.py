@@ -55,8 +55,9 @@ LANDMARK_DOT_RADIUS = 3
 # MediaPipe Face Mesh landmark 10：額頭頂部中心，最接近髮際線的中心點
 MP_HAIRLINE_LANDMARK_INDEX = 10
 
-_MpFaceMesh = None   # mediapipe FaceMesh 實例
-_MpReady    = False  # 是否已初始化
+_MpFaceMesh  = None   # mediapipe FaceLandmarker 實例
+_MpReady     = False  # 是否已初始化
+_MP_NUM_FACES = 10    # MediaPipe 最多偵測臉數（需與 Options 一致）
 
 
 # ── 模組層級純函式 ─────────────────────────────────────────────────────────────
@@ -362,6 +363,7 @@ def _load_mediapipe_model() -> bool:
         Options = mp.tasks.vision.FaceLandmarkerOptions(
             base_options=mp.tasks.BaseOptions(model_asset_path=ModelPath),
             running_mode=mp.tasks.vision.RunningMode.IMAGE,
+            num_faces=10,   # 支援多人照片，確保能偵測到所有臉再比對
         )
         _MpFaceMesh = mp.tasks.vision.FaceLandmarker.create_from_options(Options)
         _MpReady = True
@@ -393,20 +395,43 @@ def detect_hairline_box(PilImage: Image.Image,
         if not Result.face_landmarks:
             return None
 
-        # 有多張臉時，選與 FaceRefX/Y 最近的那張
-        if FaceRefX >= 0 and FaceRefY >= 0 and len(Result.face_landmarks) > 1:
+        NumMpFaces = len(Result.face_landmarks)
+
+        # 計算每張 MediaPipe 臉的重心（像素座標）
+        Centroids = []
+        for FaceLms in Result.face_landmarks:
+            CentX = sum(L.x for L in FaceLms) / len(FaceLms) * ImgW
+            CentY = sum(L.y for L in FaceLms) / len(FaceLms) * ImgH
+            Centroids.append((CentX, CentY))
+
+        # 決定是否使用 MediaPipe 比對，還是直接 fallback 幾何估算：
+        #   1 張臉   → 直接用 MediaPipe（無需比對）
+        #   2 張臉   → 計算兩臉重心距離；距離 > 圖寬 25% 時臉明顯分開，可靠比對；否則 fallback
+        #   3 張臉以上 → 臉太多太密，放棄 MediaPipe，由外層 fallback 幾何估算
+        if NumMpFaces == 1:
             BestFaceIdx = 0
-            BestDist = float('inf')
-            for Idx, FaceLms in enumerate(Result.face_landmarks):
-                # 用所有關鍵點的平均像素座標作為臉部中心
-                CentX = sum(L.x for L in FaceLms) / len(FaceLms) * ImgW
-                CentY = sum(L.y for L in FaceLms) / len(FaceLms) * ImgH
-                Dist = (CentX - FaceRefX) ** 2 + (CentY - FaceRefY) ** 2
-                if Dist < BestDist:
-                    BestDist = Dist
-                    BestFaceIdx = Idx
+        elif NumMpFaces == 2:
+            Dist2Faces = ((Centroids[0][0] - Centroids[1][0]) ** 2 +
+                          (Centroids[0][1] - Centroids[1][1]) ** 2) ** 0.5
+            if Dist2Faces < ImgW * 0.25:
+                # 兩臉靠得太近，無法可靠比對，交由幾何估算
+                return None
+            # 臉分得夠開，選與參考點最近的那張
+            BestFaceIdx = 0
+            if FaceRefX >= 0 and FaceRefY >= 0:
+                D0 = ((Centroids[0][0] - FaceRefX) ** 2 +
+                      (Centroids[0][1] - FaceRefY) ** 2) ** 0.5
+                D1 = ((Centroids[1][0] - FaceRefX) ** 2 +
+                      (Centroids[1][1] - FaceRefY) ** 2) ** 0.5
+                BestFaceIdx = 0 if D0 <= D1 else 1
+                BestDist = min(D0, D1)
+                # 驗證：若最近的 MediaPipe 臉仍距參考點 > 圖寬 15%，
+                # 代表 MediaPipe 根本沒偵測到目標臉，fallback 幾何估算
+                if BestDist > ImgW * 0.15:
+                    return None
         else:
-            BestFaceIdx = 0
+            # 3 張臉以上，放棄 MediaPipe
+            return None
 
         # 取選中人臉的 landmark 10（額頭頂部中心，最靠近髮際的中心點）
         Lm = Result.face_landmarks[BestFaceIdx][MP_HAIRLINE_LANDMARK_INDEX]

@@ -83,7 +83,24 @@ p01_Add_mark/
 ## MediaPipe 髮際線偵測說明
 - 授權：Apache 2.0，完全可商用
 - 使用 `mediapipe.tasks.vision.FaceLandmarker`（Tasks API，mediapipe >= 0.10 適用）
+- 初始化時設定 `num_faces=10`，支援多人照片偵測
 - Landmark 10：額頭頂部中心，468點中最接近髮際線的中心點
 - 首次使用時自動下載模型檔 `face_landmarker.task`（約1MB）至程式同目錄
-- class 6 的 width/height 固定為 0.025（僅作為 Random Forest 距離計算的參考點）
-- 若偵測失敗，自動 fallback 至幾何估算
+- class 6/7 的 width/height 動態取 class 0–5 中最小的 w/h 值（非固定 0.025）
+
+### MediaPipe vs 幾何估算的切換邏輯（detect_hairline_box）
+多人照片時 MediaPipe 可能對應到錯誤的臉，依偵測到的臉數決定策略：
+
+| MediaPipe 偵測臉數 | 條件 | 髮際線來源 |
+|--------------------|------|-----------|
+| 1 張 | — | MediaPipe（可靠） |
+| 2 張 | 兩臉重心距離 > 圖寬 25%，且最近臉距參考點 ≤ 圖寬 15% | MediaPipe 比對最近臉 |
+| 2 張 | 兩臉重心距離 ≤ 圖寬 25% | 幾何估算（臉太近，比對不可靠） |
+| 2 張 | 最近 MediaPipe 臉距參考點 > 圖寬 15% | 幾何估算（MediaPipe 漏偵測目標臉） |
+| 3 張以上 | — | 幾何估算（臉太多太密） |
+
+幾何估算（`_estimate_hairline_box`）完全基於 face_recognition 已選定的 `Landmarks`，
+不涉及跨模型臉序比對，永遠對應正確人臉。
+
+**注意**：兩個模型偵測到的臉數可能不同（如某張臉光線不足被其中一個模型漏掉），
+距離驗證（15% 圖寬）能防止 MediaPipe 未偵測到目標臉時強行比對到錯誤臉。
