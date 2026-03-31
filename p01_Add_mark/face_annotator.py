@@ -233,6 +233,105 @@ def _estimate_chin_box(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
         return None
 
 
+def compute_dhash(ImagePath: str, HashSize: int = 8) -> np.ndarray | None:
+    """
+    計算圖片的 difference hash（dHash），用於相似內容偵測。
+    回傳長度 HashSize*HashSize 的 bool 陣列，失敗回傳 None。
+    """
+    try:
+        Img = Image.open(ImagePath).resize(
+            (HashSize + 1, HashSize), Image.LANCZOS).convert('L')
+        Arr = np.array(Img)
+        return (Arr[:, 1:] > Arr[:, :-1]).flatten()
+    except Exception:
+        return None
+
+
+def group_similar_images(ImageList: list, MaxHashDist: int = 15) -> list:
+    """
+    將相鄰且內容相似的圖片分為同一組（用於同場景多人標記）。
+    回傳 list[list[str]]，每個子 list 為同場景圖片路徑。
+    相似度以 dHash 漢明距離判斷：距離 <= MaxHashDist 視為同一場景。
+    """
+    if not ImageList:
+        return []
+    Hashes = [compute_dhash(P) for P in ImageList]
+    Groups = []
+    CurrentGroup = [ImageList[0]]
+    for i in range(1, len(ImageList)):
+        Prev, Curr = Hashes[i - 1], Hashes[i]
+        IsSimilar = (
+            Prev is not None and
+            Curr is not None and
+            int(np.sum(Prev != Curr)) <= MaxHashDist
+        )
+        if IsSimilar:
+            CurrentGroup.append(ImageList[i])
+        else:
+            Groups.append(CurrentGroup)
+            CurrentGroup = [ImageList[i]]
+    Groups.append(CurrentGroup)
+    return Groups
+
+
+def assign_face_by_size_rank(Group: list) -> list:
+    """
+    對群組中每張圖，依位次（Rank）分配人臉：
+      - 先將每張圖的人臉分成兩桶（各自依面積由大到小）：
+          正臉桶（normal / tilt）→ 側臉桶（side）
+      - 串接為優先清單：[正臉最大, 正臉次大, …, 側臉最大, …]
+      - 第 i 張圖取清單第 i 個（i 超出時取最後一個）
+    結果：image[0]→最大正臉，image[1]→第二大正臉，以此類推；
+          正臉不夠時才退而選側臉。
+    回傳 list of (ImagePath, FaceIndexInDetectionOrder, GroupSize)。
+    """
+    GroupSize = len(Group)
+    Results = []
+    for Rank, ImagePath in enumerate(Group):
+        try:
+            NpImg = face_recognition.load_image_file(ImagePath)
+            Locs = face_recognition.face_locations(NpImg)
+            AllLandmarks = face_recognition.face_landmarks(NpImg)
+        except Exception:
+            Locs = []
+            AllLandmarks = []
+
+        if not Locs:
+            Results.append((ImagePath, 0, GroupSize))
+            continue
+
+        ImgH, ImgW = NpImg.shape[:2]
+
+        # 依面積由大到小排序，保留原始偵測索引
+        # face_locations 回傳 (top, right, bottom, left)
+        Sorted = sorted(
+            enumerate(Locs),
+            key=lambda X: (X[1][2] - X[1][0]) * (X[1][1] - X[1][3]),
+            reverse=True,
+        )
+
+        # 分成「正臉桶」與「側臉桶」（各自已依面積排好）
+        FrontalList = []
+        SideList = []
+        for OrigIdx, _ in Sorted:
+            if OrigIdx < len(AllLandmarks):
+                PoseType, _ = detect_face_pose(AllLandmarks[OrigIdx], ImgW, ImgH)
+                if PoseType != 'side':
+                    FrontalList.append(OrigIdx)
+                else:
+                    SideList.append(OrigIdx)
+            else:
+                SideList.append(OrigIdx)
+
+        # 優先清單：正臉在前，側臉在後
+        PriorityList = FrontalList + SideList
+
+        # 取第 Rank 個；超出時取最後一個
+        ChosenIdx = PriorityList[min(Rank, len(PriorityList) - 1)]
+        Results.append((ImagePath, ChosenIdx, GroupSize))
+    return Results
+
+
 def _load_mediapipe_model() -> bool:
     """
     初始化 MediaPipe FaceLandmarker（Tasks API，適用 mediapipe >= 0.10）。
@@ -272,11 +371,15 @@ def _load_mediapipe_model() -> bool:
 
 
 def detect_hairline_box(PilImage: Image.Image,
-                  ImgW: int, ImgH: int) -> dict | None:
+                  ImgW: int, ImgH: int,
+                  FaceIndex: int = 0) -> dict | None:
     """
     使用 MediaPipe FaceLandmarker landmark 10 精確定位髮際線最低中心點（類別6）。
     Apache 2.0 授權，可商用。失敗時回傳 None，由外層 fallback 至幾何估算。
+    FaceIndex > 0 時（同場景多人），MediaPipe 無法可靠對應人臉，跳過直接回傳 None。
     """
+    if FaceIndex > 0:
+        return None
     try:
         import mediapipe as mp
 
@@ -327,12 +430,34 @@ def convert_to_yolo(X1: int, Y1: int, X2: int, Y2: int,
 
 def write_yolo_file(BBoxList: list, OutputPath: str,
                   ImgW: int, ImgH: int) -> bool:
-    """將邊框列表以 YOLO 格式寫入檔案，成功回傳 True"""
+    """
+    將邊框列表以 YOLO 格式寫入檔案，成功回傳 True。
+    class 6（髮際）與 class 7（下巴）的 width/height 改用
+    class 0-5 中最小的 width 與 height，避免點標記相對過大。
+    """
     try:
+        Sorted = sorted(BBoxList, key=lambda X: X['class'])
+
+        # 先計算所有類別的 YOLO 值
+        YoloValues = {}
+        for Item in Sorted:
+            Xc, Yc, W, H = convert_to_yolo(
+                Item['x1'], Item['y1'], Item['x2'], Item['y2'], ImgW, ImgH)
+            YoloValues[Item['class']] = (Xc, Yc, W, H)
+
+        # 取 class 0-5 中最小的 W 和 H 作為參考點尺寸
+        RefSizes = [(W, H) for Cls, (_, _, W, H) in YoloValues.items() if Cls <= 5]
+        if RefSizes:
+            MinW = min(W for W, _ in RefSizes)
+            MinH = min(H for _, H in RefSizes)
+        else:
+            MinW = MinH = 0.025  # 無 class 0-5 時保留原預設
+
         with open(OutputPath, 'w', encoding='utf-8') as F:
-            for Item in sorted(BBoxList, key=lambda X: X['class']):
-                Xc, Yc, W, H = convert_to_yolo(
-                    Item['x1'], Item['y1'], Item['x2'], Item['y2'], ImgW, ImgH)
+            for Item in Sorted:
+                Xc, Yc, W, H = YoloValues[Item['class']]
+                if Item['class'] in (6, 7):
+                    W, H = MinW, MinH
                 F.write(f"{Item['class']} {Xc:.6f} {Yc:.6f} {W:.6f} {H:.6f}\n")
         return True
     except Exception as E:
@@ -585,9 +710,19 @@ class FaceAnnotatorApp(ctk.CTk):
         T.start()
 
     def _batch_process_thread(self, ImageList: list):
-        """批次處理執行緒，逐一處理每張圖片"""
-        for ImagePath in ImageList:
-            self._process_single(ImagePath)
+        """批次處理執行緒：先將相似圖片分群，同群內為每張臉選面積最大的圖片"""
+        Groups = group_similar_images(ImageList)
+        for Group in Groups:
+            if len(Group) > 1:
+                self.after(0, self._log_message,
+                           f'偵測到相似圖片群組 {os.path.basename(Group[0])}…'
+                           f'{os.path.basename(Group[-1])}，共{len(Group)}張，選取最大人臉中…')
+                # 每張圖依面積排名分配人臉（第1張最大臉、第2張次大臉…）
+                Assignments = assign_face_by_size_rank(Group)
+                for ImagePath, FaceIdx, GroupSize in Assignments:
+                    self._process_single(ImagePath, FaceIndex=FaceIdx, GroupSize=GroupSize)
+            else:
+                self._process_single(Group[0])
         # 完成後在主執行緒重啟按鈕
         self.after(0, self._enable_buttons)
         self.after(0, self._log_message,
@@ -600,7 +735,8 @@ class FaceAnnotatorApp(ctk.CTk):
         self._process_single(ImagePath)
         self.after(0, self._enable_buttons)
 
-    def _process_single(self, ImagePath: str):
+    def _process_single(self, ImagePath: str,
+                        FaceIndex: int = 0, GroupSize: int = 1):
         """
         核心處理流程：
         1. 載入圖片
@@ -629,8 +765,13 @@ class FaceAnnotatorApp(ctk.CTk):
             self.after(0, self._log_message, f'⚠ {BaseName}: 無法偵測人臉')
             return
 
-        # 只取第一張臉
-        Landmarks = LandmarksList[0]
+        # 取指定索引的臉（同場景多人時各取不同人臉）
+        if FaceIndex >= len(LandmarksList):
+            self.after(0, self._log_message,
+                       f'⚠ {BaseName}: 找不到第{FaceIndex + 1}張臉'
+                       f'（共偵測到 {len(LandmarksList)} 張）')
+            return
+        Landmarks = LandmarksList[FaceIndex]
 
         # detect_face_pose / 歪頭
         FaceType, Angle = detect_face_pose(Landmarks, ImgW, ImgH)
@@ -646,7 +787,7 @@ class FaceAnnotatorApp(ctk.CTk):
                 self.after(0, self._log_message,
                            '首次使用 MediaPipe：正在下載模型（約1MB），請稍候...')
         if _load_mediapipe_model():
-            HairlineBox = detect_hairline_box(PilImage, ImgW, ImgH)
+            HairlineBox = detect_hairline_box(PilImage, ImgW, ImgH, FaceIndex)
             if HairlineBox:
                 BBoxList = [Item for Item in BBoxList if Item['class'] != 6]
                 BBoxList.append(HairlineBox)
@@ -674,9 +815,10 @@ class FaceAnnotatorApp(ctk.CTk):
         Success = write_yolo_file(BBoxList, OutputPath, ImgW, ImgH)
 
         Elapsed = time.time() - StartTime
+        FaceInfo = f' 人臉{FaceIndex + 1}/{GroupSize}' if GroupSize > 1 else ''
         if Success:
             self.after(0, self._log_message,
-                       f'✓ {BaseName}  處理完成 ({Elapsed:.2f}秒)')
+                       f'✓ {BaseName}{FaceInfo} 處理完成 ({Elapsed:.2f}秒)')
         else:
             self.after(0, self._log_message,
                        f'⚠ {BaseName}: 寫入 YOLO 檔案失敗')
