@@ -372,14 +372,16 @@ def _load_mediapipe_model() -> bool:
 
 def detect_hairline_box(PilImage: Image.Image,
                   ImgW: int, ImgH: int,
-                  FaceIndex: int = 0) -> dict | None:
+                  FaceRefX: float = -1,
+                  FaceRefY: float = -1) -> dict | None:
     """
     使用 MediaPipe FaceLandmarker landmark 10 精確定位髮際線最低中心點（類別6）。
     Apache 2.0 授權，可商用。失敗時回傳 None，由外層 fallback 至幾何估算。
-    FaceIndex > 0 時（同場景多人），MediaPipe 無法可靠對應人臉，跳過直接回傳 None。
+
+    FaceRefX / FaceRefY：face_recognition 所用人臉的眼睛中點像素座標。
+    多人照片時，從 MediaPipe 所有偵測到的臉中，選與參考點距離最近的那張，
+    避免五官和髮際線對應到不同的人臉。
     """
-    if FaceIndex > 0:
-        return None
     try:
         import mediapipe as mp
 
@@ -391,8 +393,23 @@ def detect_hairline_box(PilImage: Image.Image,
         if not Result.face_landmarks:
             return None
 
-        # 取 landmark 10（額頭頂部中心，最靠近髮際的中心點）
-        Lm = Result.face_landmarks[0][MP_HAIRLINE_LANDMARK_INDEX]
+        # 有多張臉時，選與 FaceRefX/Y 最近的那張
+        if FaceRefX >= 0 and FaceRefY >= 0 and len(Result.face_landmarks) > 1:
+            BestFaceIdx = 0
+            BestDist = float('inf')
+            for Idx, FaceLms in enumerate(Result.face_landmarks):
+                # 用所有關鍵點的平均像素座標作為臉部中心
+                CentX = sum(L.x for L in FaceLms) / len(FaceLms) * ImgW
+                CentY = sum(L.y for L in FaceLms) / len(FaceLms) * ImgH
+                Dist = (CentX - FaceRefX) ** 2 + (CentY - FaceRefY) ** 2
+                if Dist < BestDist:
+                    BestDist = Dist
+                    BestFaceIdx = Idx
+        else:
+            BestFaceIdx = 0
+
+        # 取選中人臉的 landmark 10（額頭頂部中心，最靠近髮際的中心點）
+        Lm = Result.face_landmarks[BestFaceIdx][MP_HAIRLINE_LANDMARK_INDEX]
         HairlineX = int(Lm.x * ImgW)
         HairlineY = int(Lm.y * ImgH)
 
@@ -787,7 +804,14 @@ class FaceAnnotatorApp(ctk.CTk):
                 self.after(0, self._log_message,
                            '首次使用 MediaPipe：正在下載模型（約1MB），請稍候...')
         if _load_mediapipe_model():
-            HairlineBox = detect_hairline_box(PilImage, ImgW, ImgH, FaceIndex)
+            # 計算眼睛中點作為參考座標，讓 MediaPipe 找到對應的同一張臉
+            LeftEye  = Landmarks['left_eye']
+            RightEye = Landmarks['right_eye']
+            EyeMidX = (sum(P[0] for P in LeftEye)  / len(LeftEye) +
+                       sum(P[0] for P in RightEye) / len(RightEye)) / 2
+            EyeMidY = (sum(P[1] for P in LeftEye)  / len(LeftEye) +
+                       sum(P[1] for P in RightEye) / len(RightEye)) / 2
+            HairlineBox = detect_hairline_box(PilImage, ImgW, ImgH, EyeMidX, EyeMidY)
             if HairlineBox:
                 BBoxList = [Item for Item in BBoxList if Item['class'] != 6]
                 BBoxList.append(HairlineBox)
