@@ -2,3 +2,4 @@ customtkinter>=5.2.1
 face-recognition>=1.3.0
 Pillow>=10.0.0
 numpy>=1.24.0
+mediapipe>=0.10.0

@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Architecture
 
 **人臉辨識核心**：[ageitgey/face_recognition](https://github.com/ageitgey/face_recognition)（MIT 授權，可免費商用）
+**髮際線偵測**：[MediaPipe Face Mesh](https://developers.google.com/mediapipe/solutions/vision/face_landmarker)（Google，Apache 2.0，可商用）— landmark 10 為額頭頂部中心點
 **自動標點** 讓使用者輸入處理型態和目錄後,UI可讓使用者選單張測試,整個目錄處理。目前會把處理後的結果,以Yolo格式檔案放在使用者指定的目錄.
 
 ## Code Specification
@@ -34,7 +35,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 1. 使用者選擇 "Yolo+眼眉鼻口髮際下巴8點" 的drop-down後,需再選擇"圖片目錄","輸出目錄"後,若按下"單次測試"button,會做以下事:
  a. 顯示68個關鍵點.
- b. 顯示左眼區(類別0),右眼區(類別1),左眉區(類別2),右眉區(類別3),鼻子區(類別4),嘴巴區(類別5),髮際線最低的中心點(預估)(類別6)和下巴點(類別7).
+ b. 顯示左眼區(類別0),右眼區(類別1),左眉區(類別2),右眉區(類別3),鼻子區(類別4),嘴巴區(類別5),髮際線最低的中心點(MediaPipe landmark 10，失敗時fallback幾何估算)(類別6)和下巴點(類別7).
  c. 若發現圖裡的臉有側臉,會影響到算各類之間的距離,就在"textInfo"裡顯示: 檔案名,可能是側臉(角度:XXX度). 若能算出側臉的角度就標示出來.然後不要做下面d的部分.
  d. 將上述b點這八類以Yolo格式檔 `<class_id> <x_center> <y_center> <width> <height>` 的方式寫到 相同主檔名.txt 裡,並存在輸出目錄裡.處理完後, "textInfo"顯示處理的檔案名稱與處理時間(XX秒).
  
@@ -73,6 +74,16 @@ p01_Add_mark/
 - `取得人臉關鍵點(NpImage)` — 呼叫 face_recognition API
 - `偵測側臉(Landmarks, ImgW, ImgH)` — 判斷側臉及估算角度
 - `計算八類邊框(Landmarks, ImgW, ImgH)` — 計算8個 YOLO 類別邊框
+- `_載入MediaPipe模型()` — Lazy 初始化 MediaPipe Face Mesh（Apache 2.0，可商用）
+- `精確髮際邊框(PilImage, ImgW, ImgH)` — MediaPipe landmark 10 定位髮際中心點（class 6）
 - `轉換為Yolo格式(x1,y1,x2,y2,ImgW,ImgH)` — 像素座標轉 YOLO 正規化
 - `寫入Yolo檔案(BBoxList, OutputPath, ImgW, ImgH)` — 輸出 .txt 標記檔
 - `繪製關鍵點與框(PilImage, Landmarks, BBoxList, IsSideface)` — PIL 標注圖
+
+## MediaPipe 髮際線偵測說明
+- 授權：Apache 2.0，完全可商用
+- 使用 `mediapipe.tasks.vision.FaceLandmarker`（Tasks API，mediapipe >= 0.10 適用）
+- Landmark 10：額頭頂部中心，468點中最接近髮際線的中心點
+- 首次使用時自動下載模型檔 `face_landmarker.task`（約1MB）至程式同目錄
+- class 6 的 width/height 固定為 0.025（僅作為 Random Forest 距離計算的參考點）
+- 若偵測失敗，自動 fallback 至幾何估算

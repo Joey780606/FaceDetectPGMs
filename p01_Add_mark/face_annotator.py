@@ -49,6 +49,13 @@ CLASS_NAMES = {
 LANDMARK_DOT_COLOR = '#FFD700'  # 金黃色
 LANDMARK_DOT_RADIUS = 3
 
+# ── MediaPipe Face Mesh（全域 Lazy Load）─────────────────────────────────────
+# MediaPipe Face Mesh landmark 10：額頭頂部中心，最接近髮際線的中心點
+MP_HAIRLINE_LANDMARK_INDEX = 10
+
+_MpFaceMesh = None   # mediapipe FaceMesh 實例
+_MpReady    = False  # 是否已初始化
+
 
 # ── 模組層級純函式 ─────────────────────────────────────────────────────────────
 
@@ -207,6 +214,82 @@ def _估算下巴邊框(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
         return None
 
 
+def _載入MediaPipe模型() -> bool:
+    """
+    初始化 MediaPipe FaceLandmarker（Tasks API，適用 mediapipe >= 0.10）。
+    首次呼叫時若模型檔不存在，自動下載（約1MB）。
+    回傳 True 表示已就緒。
+    """
+    global _MpFaceMesh, _MpReady
+    if _MpReady:
+        return True
+    try:
+        import urllib.request
+        import mediapipe as mp
+
+        # 模型檔存放於程式同目錄
+        ModelPath = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            'face_landmarker.task',
+        )
+
+        # 首次使用時自動下載模型檔（約1MB）
+        if not os.path.exists(ModelPath):
+            ModelUrl = (
+                'https://storage.googleapis.com/mediapipe-models/'
+                'face_landmarker/face_landmarker/float16/1/face_landmarker.task'
+            )
+            urllib.request.urlretrieve(ModelUrl, ModelPath)
+
+        Options = mp.tasks.vision.FaceLandmarkerOptions(
+            base_options=mp.tasks.BaseOptions(model_asset_path=ModelPath),
+            running_mode=mp.tasks.vision.RunningMode.IMAGE,
+        )
+        _MpFaceMesh = mp.tasks.vision.FaceLandmarker.create_from_options(Options)
+        _MpReady = True
+        return True
+    except Exception:
+        return False
+
+
+def 精確髮際邊框(PilImage: Image.Image,
+                  ImgW: int, ImgH: int) -> dict | None:
+    """
+    使用 MediaPipe FaceLandmarker landmark 10 精確定位髮際線最低中心點（類別6）。
+    Apache 2.0 授權，可商用。失敗時回傳 None，由外層 fallback 至幾何估算。
+    """
+    try:
+        import mediapipe as mp
+
+        # MediaPipe Tasks API 需要 mp.Image 格式
+        NpRgb = np.array(PilImage)
+        MpImage = mp.Image(image_format=mp.ImageFormat.SRGB, data=NpRgb)
+        Result = _MpFaceMesh.detect(MpImage)
+
+        if not Result.face_landmarks:
+            return None
+
+        # 取 landmark 10（額頭頂部中心，最靠近髮際的中心點）
+        Lm = Result.face_landmarks[0][MP_HAIRLINE_LANDMARK_INDEX]
+        HairlineX = int(Lm.x * ImgW)
+        HairlineY = int(Lm.y * ImgH)
+
+        # clamp 至圖片範圍
+        HairlineX = max(0, min(HairlineX, ImgW - 1))
+        HairlineY = max(0, min(HairlineY, ImgH - 1))
+
+        # 固定邊框大小：正規化後 width=height=0.025（僅作為參考點）
+        HalfW = max(1, int(ImgW * 0.025 / 2))
+        HalfH = max(1, int(ImgH * 0.025 / 2))
+        X1 = max(0, HairlineX - HalfW)
+        Y1 = max(0, HairlineY - HalfH)
+        X2 = min(ImgW - 1, HairlineX + HalfW)
+        Y2 = min(ImgH - 1, HairlineY + HalfH)
+        return {'class': 6, 'x1': X1, 'y1': Y1, 'x2': X2, 'y2': Y2}
+    except Exception:
+        return None
+
+
 def 轉換為Yolo格式(X1: int, Y1: int, X2: int, Y2: int,
                    ImgW: int, ImgH: int) -> tuple:
     """像素座標轉換為 YOLO 正規化格式，回傳 (xc, yc, w, h)"""
@@ -228,7 +311,7 @@ def 寫入Yolo檔案(BBoxList: list, OutputPath: str,
     """將邊框列表以 YOLO 格式寫入檔案，成功回傳 True"""
     try:
         with open(OutputPath, 'w', encoding='utf-8') as F:
-            for Item in BBoxList:
+            for Item in sorted(BBoxList, key=lambda X: X['class']):
                 Xc, Yc, W, H = 轉換為Yolo格式(
                     Item['x1'], Item['y1'], Item['x2'], Item['y2'], ImgW, ImgH)
                 F.write(f"{Item['class']} {Xc:.6f} {Yc:.6f} {W:.6f} {H:.6f}\n")
@@ -533,6 +616,22 @@ class FaceAnnotatorApp(ctk.CTk):
 
         # 計算8類邊框（側臉也計算，用於繪製顯示）
         BBoxList = 計算八類邊框(Landmarks, ImgW, ImgH)
+
+        # 用 MediaPipe landmark 10 精確定位髮際線，取代幾何估算的 class 6
+        if not _MpReady:
+            ModelFile = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), 'face_landmarker.task')
+            if not os.path.exists(ModelFile):
+                self.after(0, self._寫入訊息,
+                           '首次使用 MediaPipe：正在下載模型（約1MB），請稍候...')
+        if _載入MediaPipe模型():
+            HairlineBox = 精確髮際邊框(PilImage, ImgW, ImgH)
+            if HairlineBox:
+                BBoxList = [Item for Item in BBoxList if Item['class'] != 6]
+                BBoxList.append(HairlineBox)
+        else:
+            self.after(0, self._寫入訊息,
+                       '⚠ MediaPipe 載入失敗，改用幾何估算髮際線')
 
         # 繪製並顯示圖片
         AnnotatedPil = 繪製關鍵點與框(PilImage, Landmarks, BBoxList, IsSideface)
