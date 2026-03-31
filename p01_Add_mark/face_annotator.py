@@ -172,13 +172,16 @@ def _估算髮際邊框(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
         RightEyeCx = sum(P[0] for P in RightEye) / len(RightEye) if RightEye else ImgW / 2
         HairlineCx = int((LeftEyeCx + RightEyeCx) / 2)
 
+        # 先把中心點 clamp 至圖片範圍內，避免邊框座標反轉
+        HairlineCx = max(0, min(HairlineCx, ImgW - 1))
+        HairlineY  = max(0, min(HairlineY,  ImgH - 1))
         # 固定邊框大小：正規化後 width=height=0.025（僅作為參考點）
-        HalfW = int(ImgW * 0.025 / 2)
-        HalfH = int(ImgH * 0.025 / 2)
+        HalfW = max(1, int(ImgW * 0.025 / 2))
+        HalfH = max(1, int(ImgH * 0.025 / 2))
         X1 = max(0, HairlineCx - HalfW)
-        Y1 = max(0, HairlineY - HalfH)
+        Y1 = max(0, HairlineY  - HalfH)
         X2 = min(ImgW - 1, HairlineCx + HalfW)
-        Y2 = min(ImgH - 1, HairlineY + HalfH)
+        Y2 = min(ImgH - 1, HairlineY  + HalfH)
         return {'class': 6, 'x1': X1, 'y1': Y1, 'x2': X2, 'y2': Y2}
     except Exception:
         return None
@@ -266,6 +269,9 @@ def 繪製關鍵點與框(PilImage: Image.Image,
     for Item in BBoxList:
         Cid = Item['class']
         Color = CLASS_COLORS.get(Cid, '#FFFFFF')
+        # 防護：跳過無效邊框（座標反轉時 PIL 會 raise）
+        if Item['x2'] <= Item['x1'] or Item['y2'] <= Item['y1']:
+            continue
         Draw.rectangle(
             [Item['x1'], Item['y1'], Item['x2'], Item['y2']],
             outline=Color,
