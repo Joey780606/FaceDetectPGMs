@@ -1,0 +1,78 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Goal
+
+使用 face_recognition 庫的內建68個關鍵點,來協助自動在圖片中標出各器官的點或區域。
+透過 CustomTkinter GUI進行開發。
+
+## Architecture
+
+**人臉辨識核心**：[ageitgey/face_recognition](https://github.com/ageitgey/face_recognition)（MIT 授權，可免費商用）
+**自動標點** 讓使用者輸入處理型態和目錄後,UI可讓使用者選單張測試,整個目錄處理。目前會把處理後的結果,以Yolo格式檔案放在使用者指定的目錄.
+
+## Code Specification
+
+1. 開發語言: Python 3.13
+2. UI library: customtkinter
+3. 註解請用中文
+4. Variable Naming: CamelCase is used consistently
+5. Error Handling: All API calls must include a try-catch block
+
+## Design Decisions / Constraints
+
+1. 顯示照片時,要把相關的器官的範圍標示出來
+
+## UI Design（4 rows）
+
+- **Row 0**：1是drop-down menu,目前就一項,"Yolo+眼眉鼻口髮際下巴8點",2是"單次測試"的button,3是"全目錄處理"的button.
+- **Row 1**：1是Label,顯示"圖片目錄",2是供人輸入處理路徑的Entry,3是按下時可選取路徑的button,名叫"選擇",選好路徑後會顯示在2的Entry裡.
+- **Row 2**：1是Label,顯示"輸出目錄",2是供人輸出資料路徑的Entry,3是按下時可選取路徑的button,名叫"選擇",選好路徑後會顯示在2的Entry裡.
+- **Row 3**：顯示照片的地方,名叫PicArea.
+- **Row 4**：再分二Row,1是Label,顯示 "Information:" 顯示多行的UI text,2是能放多行的Text,名叫"textInfo",有新的資料,都放在最上面一行.
+
+1. 使用者選擇 "Yolo+眼眉鼻口髮際下巴8點" 的drop-down後,需再選擇"圖片目錄","輸出目錄"後,若按下"單次測試"button,會做以下事:
+ a. 顯示68個關鍵點.
+ b. 顯示左眼區(類別0),右眼區(類別1),左眉區(類別2),右眉區(類別3),鼻子區(類別4),嘴巴區(類別5),髮際線最低的中心點(預估)(類別6)和下巴點(類別7).
+ c. 若發現圖裡的臉有側臉,會影響到算各類之間的距離,就在"textInfo"裡顯示: 檔案名,可能是側臉(角度:XXX度). 若能算出側臉的角度就標示出來.然後不要做下面d的部分.
+ d. 將上述b點這八類以Yolo格式檔 `<class_id> <x_center> <y_center> <width> <height>` 的方式寫到 相同主檔名.txt 裡,並存在輸出目錄裡.處理完後, "textInfo"顯示處理的檔案名稱與處理時間(XX秒).
+ 
+2. 使用者選擇 "Yolo+眼眉鼻口髮際下巴8點" 的drop-down後,需再選擇圖片目錄,輸出目錄後,若按下"全目錄處理"button,就依上述1將目錄中所有檔案都進行處理,
+ 也把每個檔的處理狀況,都寫到"textInfo"裡.
+
+## Commands
+
+### 安裝依賴
+```
+pip install -r requirements.txt
+```
+
+### 執行主程式
+```
+python main.py
+```
+
+### 首次使用流程
+```
+pip install -r requirements.txt
+python main.py
+```
+
+## File Structure
+```
+p01_Add_mark/
+├── main.py             # 程式進入點（5行）
+├── face_annotator.py   # 所有 UI 類別 + 處理函式
+├── requirements.txt    # 套件版本
+└── PLAN.md             # 實作規劃文件
+```
+
+## Key Classes and Functions
+- `FaceAnnotatorApp` (face_annotator.py) — CustomTkinter 主視窗
+- `取得人臉關鍵點(NpImage)` — 呼叫 face_recognition API
+- `偵測側臉(Landmarks, ImgW, ImgH)` — 判斷側臉及估算角度
+- `計算八類邊框(Landmarks, ImgW, ImgH)` — 計算8個 YOLO 類別邊框
+- `轉換為Yolo格式(x1,y1,x2,y2,ImgW,ImgH)` — 像素座標轉 YOLO 正規化
+- `寫入Yolo檔案(BBoxList, OutputPath, ImgW, ImgH)` — 輸出 .txt 標記檔
+- `繪製關鍵點與框(PilImage, Landmarks, BBoxList, IsSideface)` — PIL 標注圖
