@@ -20,6 +20,8 @@ SUPPORTED_EXTS = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
 
 # 側臉判斷閾值（鼻尖相對兩眼中點的偏移比例）
 PROFILE_OFFSET_THRESHOLD = 0.20
+# 歪頭判斷閾值（兩眼Y軸差異 / 兩眼間距）：歪頭時此值偏大
+EYE_TILT_THRESHOLD = 0.15
 
 # 圖片顯示區域最大尺寸
 PIC_AREA_MAX_W = 800
@@ -69,31 +71,48 @@ def 取得人臉關鍵點(NpImage: np.ndarray) -> list:
 
 def 偵測側臉(Landmarks: dict, ImgW: int, ImgH: int) -> tuple:
     """
-    判斷是否為側臉。
-    回傳 (是否側臉: bool, 估算角度: float)
+    判斷臉部姿態。
+    回傳 (臉型: str, 估算角度: float)
+    臉型: 'normal'（正常）| 'side'（側臉）| 'tilt'（歪頭）
+
+    判斷邏輯：
+    1. 兩眼Y軸差異 > EYE_TILT_THRESHOLD → 歪頭
+    2. 鼻尖水平偏移 > PROFILE_OFFSET_THRESHOLD → 側臉
+    3. 兩者皆未超過 → 正常
     """
     try:
-        # 左眼中心 X
-        LeftEyeX = sum(P[0] for P in Landmarks['left_eye']) / len(Landmarks['left_eye'])
-        # 右眼中心 X
-        RightEyeX = sum(P[0] for P in Landmarks['right_eye']) / len(Landmarks['right_eye'])
-        # 兩眼中點 X
-        EyeMidX = (LeftEyeX + RightEyeX) / 2.0
-        # 鼻尖平均 X
-        NoseTipX = sum(P[0] for P in Landmarks['nose_tip']) / len(Landmarks['nose_tip'])
+        LeftEyePts  = Landmarks['left_eye']
+        RightEyePts = Landmarks['right_eye']
+        # 左眼中心
+        LeftEyeX = sum(P[0] for P in LeftEyePts) / len(LeftEyePts)
+        LeftEyeY = sum(P[1] for P in LeftEyePts) / len(LeftEyePts)
+        # 右眼中心
+        RightEyeX = sum(P[0] for P in RightEyePts) / len(RightEyePts)
+        RightEyeY = sum(P[1] for P in RightEyePts) / len(RightEyePts)
         # 兩眼間距
         EyeSpan = abs(RightEyeX - LeftEyeX)
         if EyeSpan < 1:
-            return False, 0.0
-        # 偏移比例
-        Offset = abs(NoseTipX - EyeMidX) / EyeSpan
-        if Offset > PROFILE_OFFSET_THRESHOLD:
-            # 線性估算角度：Offset=0 → 0度，Offset=0.5 → 90度
-            AngleDeg = min(Offset * 180.0, 90.0)
-            return True, AngleDeg
-        return False, 0.0
+            return 'normal', 0.0
+        # 兩眼Y軸差異比例
+        EyeYDiff = abs(LeftEyeY - RightEyeY) / EyeSpan
+        # 鼻尖水平偏移比例（使用 nose_tip[2] 中心單點）
+        NoseTipX = Landmarks['nose_tip'][2][0]
+        EyeMidX  = (LeftEyeX + RightEyeX) / 2.0
+        NoseOffset = abs(NoseTipX - EyeMidX) / EyeSpan
+        #print(f'1-1 Eye: EyeYDiff={EyeYDiff:.4f}, EYE_TILT_THRESHOLD={EYE_TILT_THRESHOLD:.4f}')
+        #print(f'1-2 Nose: NoseOffset={NoseOffset:.4f}, PROFILE_OFFSET_THRESHOLD={PROFILE_OFFSET_THRESHOLD:.4f}')
+        # 先判歪頭，再判側臉
+        if EyeYDiff > EYE_TILT_THRESHOLD:
+            AngleDeg = min(EyeYDiff * 180.0, 90.0)
+            #print(f'Info: tilt AngleDeg={AngleDeg:.2f}')
+            return 'tilt', AngleDeg   # 歪頭
+        if NoseOffset > PROFILE_OFFSET_THRESHOLD:
+            AngleDeg = min(NoseOffset * 180.0, 90.0)
+            #print(f'Info: side AngleDeg={AngleDeg:.2f}')
+            return 'side', AngleDeg   # 側臉
+        return 'normal', 0.0
     except Exception:
-        return False, 0.0
+        return 'normal', 0.0
 
 
 def 計算邊框(PointList: list) -> tuple:
@@ -323,7 +342,7 @@ def 寫入Yolo檔案(BBoxList: list, OutputPath: str,
 def 繪製關鍵點與框(PilImage: Image.Image,
                    Landmarks: dict,
                    BBoxList: list,
-                   IsSideface: bool) -> Image.Image:
+                   FaceType: str) -> Image.Image:
     """
     在圖片副本上繪製68個關鍵點（金黃色點）及8類邊框（各類別顏色）。
     回傳標注後的 PIL Image。
@@ -368,9 +387,11 @@ def 繪製關鍵點與框(PilImage: Image.Image,
             fill=Color,
         )
 
-    # 若是側臉，在圖上加提示文字
-    if IsSideface:
+    # 若姿態異常，在圖上加提示文字
+    if FaceType == 'side':
         Draw.text((10, 10), '⚠ 側臉', fill='#FF4444')
+    elif FaceType == 'tilt':
+        Draw.text((10, 10), '⚠ 歪頭', fill='#FF8800')
 
     return AnnotatedImg
 
@@ -611,8 +632,8 @@ class FaceAnnotatorApp(ctk.CTk):
         # 只取第一張臉
         Landmarks = LandmarksList[0]
 
-        # 偵測側臉
-        IsSideface, Angle = 偵測側臉(Landmarks, ImgW, ImgH)
+        # 偵測側臉 / 歪頭
+        FaceType, Angle = 偵測側臉(Landmarks, ImgW, ImgH)
 
         # 計算8類邊框（側臉也計算，用於繪製顯示）
         BBoxList = 計算八類邊框(Landmarks, ImgW, ImgH)
@@ -634,14 +655,18 @@ class FaceAnnotatorApp(ctk.CTk):
                        '⚠ MediaPipe 載入失敗，改用幾何估算髮際線')
 
         # 繪製並顯示圖片
-        AnnotatedPil = 繪製關鍵點與框(PilImage, Landmarks, BBoxList, IsSideface)
+        AnnotatedPil = 繪製關鍵點與框(PilImage, Landmarks, BBoxList, FaceType)
         self.after(0, self._更新圖片顯示, AnnotatedPil)
 
         # 側臉：記錄訊息，不輸出 YOLO 檔
-        if IsSideface:
+        if FaceType == 'side':
             self.after(0, self._寫入訊息,
                        f'{BaseName}, 可能是側臉(角度:{Angle:.1f}度)')
             return
+        # 歪頭：記錄訊息，但繼續輸出 YOLO 檔
+        if FaceType == 'tilt':
+            self.after(0, self._寫入訊息,
+                       f'{BaseName}, 可能是歪頭(角度:{Angle:.1f}度)')
 
         # 輸出 YOLO 格式檔
         StemName = os.path.splitext(BaseName)[0]
