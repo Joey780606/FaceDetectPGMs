@@ -172,12 +172,13 @@ def _估算髮際邊框(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
         RightEyeCx = sum(P[0] for P in RightEye) / len(RightEye) if RightEye else ImgW / 2
         HairlineCx = int((LeftEyeCx + RightEyeCx) / 2)
 
-        # 邊框半徑
-        HalfSize = max(int(ImgW * 0.03), 8)
-        X1 = max(0, HairlineCx - HalfSize)
-        Y1 = max(0, HairlineY - HalfSize)
-        X2 = min(ImgW - 1, HairlineCx + HalfSize)
-        Y2 = min(ImgH - 1, HairlineY + HalfSize)
+        # 固定邊框大小：正規化後 width=height=0.025（僅作為參考點）
+        HalfW = int(ImgW * 0.025 / 2)
+        HalfH = int(ImgH * 0.025 / 2)
+        X1 = max(0, HairlineCx - HalfW)
+        Y1 = max(0, HairlineY - HalfH)
+        X2 = min(ImgW - 1, HairlineCx + HalfW)
+        Y2 = min(ImgH - 1, HairlineY + HalfH)
         return {'class': 6, 'x1': X1, 'y1': Y1, 'x2': X2, 'y2': Y2}
     except Exception:
         return None
@@ -191,11 +192,13 @@ def _估算下巴邊框(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
             return None
         # chin[8] 為68點模型的下巴最低中心點
         ChinPoint = ChinPts[8]
-        HalfSize = max(int(ImgW * 0.03), 8)
-        X1 = max(0, ChinPoint[0] - HalfSize)
-        Y1 = max(0, ChinPoint[1] - HalfSize)
-        X2 = min(ImgW - 1, ChinPoint[0] + HalfSize)
-        Y2 = min(ImgH - 1, ChinPoint[1] + HalfSize)
+        # 固定邊框大小：正規化後 width=height=0.025（僅作為參考點）
+        HalfW = int(ImgW * 0.025 / 2)
+        HalfH = int(ImgH * 0.025 / 2)
+        X1 = max(0, ChinPoint[0] - HalfW)
+        Y1 = max(0, ChinPoint[1] - HalfH)
+        X2 = min(ImgW - 1, ChinPoint[0] + HalfW)
+        Y2 = min(ImgH - 1, ChinPoint[1] + HalfH)
         return {'class': 7, 'x1': X1, 'y1': Y1, 'x2': X2, 'y2': Y2}
     except Exception:
         return None
