@@ -61,7 +61,7 @@ _MpReady    = False  # 是否已初始化
 
 # ── 模組層級純函式 ─────────────────────────────────────────────────────────────
 
-def 取得人臉關鍵點(NpImage: np.ndarray) -> list:
+def get_face_landmarks(NpImage: np.ndarray) -> list:
     """呼叫 face_recognition 取得68個關鍵點，失敗時回傳空列表"""
     try:
         return face_recognition.face_landmarks(NpImage)
@@ -69,7 +69,7 @@ def 取得人臉關鍵點(NpImage: np.ndarray) -> list:
         return []
 
 
-def 偵測側臉(Landmarks: dict, ImgW: int, ImgH: int) -> tuple:
+def detect_face_pose(Landmarks: dict, ImgW: int, ImgH: int) -> tuple:
     """
     判斷臉部姿態。
     回傳 (臉型: str, 估算角度: float)
@@ -115,14 +115,14 @@ def 偵測側臉(Landmarks: dict, ImgW: int, ImgH: int) -> tuple:
         return 'normal', 0.0
 
 
-def 計算邊框(PointList: list) -> tuple:
+def calc_bounding_box(PointList: list) -> tuple:
     """從點列表計算最小外接矩形，回傳 (x1, y1, x2, y2)"""
     Xs = [P[0] for P in PointList]
     Ys = [P[1] for P in PointList]
     return int(min(Xs)), int(min(Ys)), int(max(Xs)), int(max(Ys))
 
 
-def 計算八類邊框(Landmarks: dict, ImgW: int, ImgH: int) -> list:
+def calc_eight_class_boxes(Landmarks: dict, ImgW: int, ImgH: int) -> list:
     """
     計算8個 YOLO 類別的邊框。
     回傳 list of dict: [{'class': N, 'x1':..., 'y1':..., 'x2':..., 'y2':...}, ...]
@@ -131,10 +131,10 @@ def 計算八類邊框(Landmarks: dict, ImgW: int, ImgH: int) -> list:
     # 邊框 padding (px)
     PAD = 4
 
-    def _加邊框(ClassId, PointList):
+    def _add_box(ClassId, PointList):
         if not PointList:
             return
-        X1, Y1, X2, Y2 = 計算邊框(PointList)
+        X1, Y1, X2, Y2 = calc_bounding_box(PointList)
         # 加 padding，並 clamp 至圖片邊界
         X1 = max(0, X1 - PAD)
         Y1 = max(0, Y1 - PAD)
@@ -143,34 +143,34 @@ def 計算八類邊框(Landmarks: dict, ImgW: int, ImgH: int) -> list:
         結果.append({'class': ClassId, 'x1': X1, 'y1': Y1, 'x2': X2, 'y2': Y2})
 
     # 類別 0：左眼
-    _加邊框(0, Landmarks.get('left_eye', []))
+    _add_box(0, Landmarks.get('left_eye', []))
     # 類別 1：右眼
-    _加邊框(1, Landmarks.get('right_eye', []))
+    _add_box(1, Landmarks.get('right_eye', []))
     # 類別 2：左眉
-    _加邊框(2, Landmarks.get('left_eyebrow', []))
+    _add_box(2, Landmarks.get('left_eyebrow', []))
     # 類別 3：右眉
-    _加邊框(3, Landmarks.get('right_eyebrow', []))
+    _add_box(3, Landmarks.get('right_eyebrow', []))
     # 類別 4：鼻子（鼻樑 + 鼻尖）
     NosePoints = Landmarks.get('nose_bridge', []) + Landmarks.get('nose_tip', [])
-    _加邊框(4, NosePoints)
+    _add_box(4, NosePoints)
     # 類別 5：嘴巴（上唇 + 下唇）
     MouthPoints = Landmarks.get('top_lip', []) + Landmarks.get('bottom_lip', [])
-    _加邊框(5, MouthPoints)
+    _add_box(5, MouthPoints)
 
     # 類別 6：髮際線最低中心點（幾何估算）
-    HairlineBox = _估算髮際邊框(Landmarks, ImgW, ImgH)
+    HairlineBox = _estimate_hairline_box(Landmarks, ImgW, ImgH)
     if HairlineBox:
         結果.append(HairlineBox)
 
     # 類別 7：下巴最低中心點
-    ChinBox = _估算下巴邊框(Landmarks, ImgW, ImgH)
+    ChinBox = _estimate_chin_box(Landmarks, ImgW, ImgH)
     if ChinBox:
         結果.append(ChinBox)
 
     return 結果
 
 
-def _估算髮際邊框(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
+def _estimate_hairline_box(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
     """估算髮際線最低中心點的邊框（類別6）"""
     try:
         LeftBrow = Landmarks.get('left_eyebrow', [])
@@ -213,7 +213,7 @@ def _估算髮際邊框(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
         return None
 
 
-def _估算下巴邊框(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
+def _estimate_chin_box(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
     """取 chin[8] 作為下巴最低中心點（類別7）"""
     try:
         ChinPts = Landmarks.get('chin', [])
@@ -233,7 +233,7 @@ def _估算下巴邊框(Landmarks: dict, ImgW: int, ImgH: int) -> dict | None:
         return None
 
 
-def _載入MediaPipe模型() -> bool:
+def _load_mediapipe_model() -> bool:
     """
     初始化 MediaPipe FaceLandmarker（Tasks API，適用 mediapipe >= 0.10）。
     首次呼叫時若模型檔不存在，自動下載（約1MB）。
@@ -271,7 +271,7 @@ def _載入MediaPipe模型() -> bool:
         return False
 
 
-def 精確髮際邊框(PilImage: Image.Image,
+def detect_hairline_box(PilImage: Image.Image,
                   ImgW: int, ImgH: int) -> dict | None:
     """
     使用 MediaPipe FaceLandmarker landmark 10 精確定位髮際線最低中心點（類別6）。
@@ -309,7 +309,7 @@ def 精確髮際邊框(PilImage: Image.Image,
         return None
 
 
-def 轉換為Yolo格式(X1: int, Y1: int, X2: int, Y2: int,
+def convert_to_yolo(X1: int, Y1: int, X2: int, Y2: int,
                    ImgW: int, ImgH: int) -> tuple:
     """像素座標轉換為 YOLO 正規化格式，回傳 (xc, yc, w, h)"""
     # clamp
@@ -325,13 +325,13 @@ def 轉換為Yolo格式(X1: int, Y1: int, X2: int, Y2: int,
     return Xc, Yc, W, H
 
 
-def 寫入Yolo檔案(BBoxList: list, OutputPath: str,
+def write_yolo_file(BBoxList: list, OutputPath: str,
                   ImgW: int, ImgH: int) -> bool:
     """將邊框列表以 YOLO 格式寫入檔案，成功回傳 True"""
     try:
         with open(OutputPath, 'w', encoding='utf-8') as F:
             for Item in sorted(BBoxList, key=lambda X: X['class']):
-                Xc, Yc, W, H = 轉換為Yolo格式(
+                Xc, Yc, W, H = convert_to_yolo(
                     Item['x1'], Item['y1'], Item['x2'], Item['y2'], ImgW, ImgH)
                 F.write(f"{Item['class']} {Xc:.6f} {Yc:.6f} {W:.6f} {H:.6f}\n")
         return True
@@ -339,7 +339,7 @@ def 寫入Yolo檔案(BBoxList: list, OutputPath: str,
         return False
 
 
-def 繪製關鍵點與框(PilImage: Image.Image,
+def draw_landmarks_and_boxes(PilImage: Image.Image,
                    Landmarks: dict,
                    BBoxList: list,
                    FaceType: str) -> Image.Image:
@@ -409,12 +409,12 @@ class FaceAnnotatorApp(ctk.CTk):
         # 保留 CTkImage 參考，防止被垃圾回收
         self._CurrentImage = None
 
-        self._建立介面()
-        self._設定版面()
+        self._build_ui()
+        self._setup_layout()
 
     # ── 建立介面 ──────────────────────────────────────────────────────────────
 
-    def _建立介面(self):
+    def _build_ui(self):
         """建立所有 widgets"""
 
         # Row 0：模式選單 + 功能按鈕
@@ -427,13 +427,13 @@ class FaceAnnotatorApp(ctk.CTk):
 
         self.BtnSingle = ctk.CTkButton(
             self, text='單次測試', width=120,
-            command=self._單次測試,
+            command=self._single_test,
         )
         self.BtnSingle.grid(row=0, column=1, padx=8, pady=8)
 
         self.BtnBatch = ctk.CTkButton(
             self, text='全目錄處理', width=120,
-            command=self._全目錄處理,
+            command=self._batch_process,
         )
         self.BtnBatch.grid(row=0, column=2, padx=8, pady=8)
 
@@ -444,7 +444,7 @@ class FaceAnnotatorApp(ctk.CTk):
         self.EntryInputDir.grid(row=1, column=1, padx=4, pady=4, sticky='ew')
         ctk.CTkButton(
             self, text='選擇', width=60,
-            command=self._選擇輸入目錄,
+            command=self._select_input_dir,
         ).grid(row=1, column=2, padx=8, pady=4)
 
         # Row 2：輸出目錄
@@ -454,7 +454,7 @@ class FaceAnnotatorApp(ctk.CTk):
         self.EntryOutputDir.grid(row=2, column=1, padx=4, pady=4, sticky='ew')
         ctk.CTkButton(
             self, text='選擇', width=60,
-            command=self._選擇輸出目錄,
+            command=self._select_output_dir,
         ).grid(row=2, column=2, padx=8, pady=4)
 
         # Row 3：圖片顯示區 PicArea
@@ -477,21 +477,21 @@ class FaceAnnotatorApp(ctk.CTk):
         self.TextInfo.grid(row=4, column=1, columnspan=2,
                            padx=8, pady=(4, 8), sticky='ew')
 
-    def _設定版面(self):
+    def _setup_layout(self):
         """設定 Grid 權重，讓 Entry/TextInfo 水平延伸，PicArea 垂直延伸"""
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(3, weight=1)
 
     # ── 目錄選擇 ──────────────────────────────────────────────────────────────
 
-    def _選擇輸入目錄(self):
+    def _select_input_dir(self):
         """開啟資料夾選擇對話框，填入 EntryInputDir"""
         DirPath = filedialog.askdirectory(title='選擇圖片目錄')
         if DirPath:
             self.EntryInputDir.delete(0, 'end')
             self.EntryInputDir.insert(0, DirPath)
 
-    def _選擇輸出目錄(self):
+    def _select_output_dir(self):
         """開啟資料夾選擇對話框，填入 EntryOutputDir"""
         DirPath = filedialog.askdirectory(title='選擇輸出目錄')
         if DirPath:
@@ -500,35 +500,35 @@ class FaceAnnotatorApp(ctk.CTk):
 
     # ── 驗證設定 ──────────────────────────────────────────────────────────────
 
-    def _驗證設定(self) -> bool:
+    def _validate_settings(self) -> bool:
         """驗證目錄是否已設定，回傳 True 表示可繼續"""
         InputDir = self.EntryInputDir.get().strip()
         OutputDir = self.EntryOutputDir.get().strip()
 
         if not InputDir:
-            self._寫入訊息('⚠ 請先選擇圖片目錄')
+            self._log_message('⚠ 請先選擇圖片目錄')
             return False
         if not os.path.isdir(InputDir):
-            self._寫入訊息(f'⚠ 圖片目錄不存在: {InputDir}')
+            self._log_message(f'⚠ 圖片目錄不存在: {InputDir}')
             return False
         if not OutputDir:
-            self._寫入訊息('⚠ 請先選擇輸出目錄')
+            self._log_message('⚠ 請先選擇輸出目錄')
             return False
 
         # 輸出目錄不存在時自動建立
         try:
             os.makedirs(OutputDir, exist_ok=True)
         except Exception as E:
-            self._寫入訊息(f'⚠ 無法建立輸出目錄: {E}')
+            self._log_message(f'⚠ 無法建立輸出目錄: {E}')
             return False
 
         return True
 
     # ── 單次測試 ──────────────────────────────────────────────────────────────
 
-    def _單次測試(self):
+    def _single_test(self):
         """選取單張圖片後，在背景執行緒處理"""
-        if not self._驗證設定():
+        if not self._validate_settings():
             return
 
         # 開啟圖片選取對話框
@@ -546,7 +546,7 @@ class FaceAnnotatorApp(ctk.CTk):
         self.BtnBatch.configure(state='disabled')
 
         T = threading.Thread(
-            target=self._處理單張執行緒,
+            target=self._process_single_thread,
             args=(ImagePath,),
             daemon=True,
         )
@@ -554,9 +554,9 @@ class FaceAnnotatorApp(ctk.CTk):
 
     # ── 全目錄處理 ────────────────────────────────────────────────────────────
 
-    def _全目錄處理(self):
+    def _batch_process(self):
         """掃描目錄中所有圖片，在背景執行緒批次處理"""
-        if not self._驗證設定():
+        if not self._validate_settings():
             return
 
         InputDir = self.EntryInputDir.get().strip()
@@ -570,37 +570,37 @@ class FaceAnnotatorApp(ctk.CTk):
         ImageList = list(dict.fromkeys(ImageList))
 
         if not ImageList:
-            self._寫入訊息('⚠ 目錄中無支援的圖片檔案')
+            self._log_message('⚠ 目錄中無支援的圖片檔案')
             return
 
-        self._寫入訊息(f'開始批次處理，共 {len(ImageList)} 張圖片...')
+        self._log_message(f'開始批次處理，共 {len(ImageList)} 張圖片...')
         self.BtnSingle.configure(state='disabled')
         self.BtnBatch.configure(state='disabled')
 
         T = threading.Thread(
-            target=self._批次處理執行緒,
+            target=self._batch_process_thread,
             args=(ImageList,),
             daemon=True,
         )
         T.start()
 
-    def _批次處理執行緒(self, ImageList: list):
+    def _batch_process_thread(self, ImageList: list):
         """批次處理執行緒，逐一處理每張圖片"""
         for ImagePath in ImageList:
-            self._處理單張(ImagePath)
+            self._process_single(ImagePath)
         # 完成後在主執行緒重啟按鈕
-        self.after(0, self._重啟按鈕)
-        self.after(0, self._寫入訊息,
+        self.after(0, self._enable_buttons)
+        self.after(0, self._log_message,
                    f'✓ 全目錄處理完成，共 {len(ImageList)} 張')
 
     # ── 核心處理 ──────────────────────────────────────────────────────────────
 
-    def _處理單張執行緒(self, ImagePath: str):
+    def _process_single_thread(self, ImagePath: str):
         """單次測試用執行緒包裝，完成後重啟按鈕"""
-        self._處理單張(ImagePath)
-        self.after(0, self._重啟按鈕)
+        self._process_single(ImagePath)
+        self.after(0, self._enable_buttons)
 
-    def _處理單張(self, ImagePath: str):
+    def _process_single(self, ImagePath: str):
         """
         核心處理流程：
         1. 載入圖片
@@ -617,73 +617,73 @@ class FaceAnnotatorApp(ctk.CTk):
         try:
             NpImage = face_recognition.load_image_file(ImagePath)
         except Exception as E:
-            self.after(0, self._寫入訊息, f'⚠ {BaseName}: 無法載入圖片 ({E})')
+            self.after(0, self._log_message, f'⚠ {BaseName}: 無法載入圖片 ({E})')
             return
 
         ImgH, ImgW = NpImage.shape[:2]
         PilImage = Image.fromarray(NpImage)
 
-        # 取得人臉關鍵點
-        LandmarksList = 取得人臉關鍵點(NpImage)
+        # get_face_landmarks
+        LandmarksList = get_face_landmarks(NpImage)
         if not LandmarksList:
-            self.after(0, self._寫入訊息, f'⚠ {BaseName}: 無法偵測人臉')
+            self.after(0, self._log_message, f'⚠ {BaseName}: 無法偵測人臉')
             return
 
         # 只取第一張臉
         Landmarks = LandmarksList[0]
 
-        # 偵測側臉 / 歪頭
-        FaceType, Angle = 偵測側臉(Landmarks, ImgW, ImgH)
+        # detect_face_pose / 歪頭
+        FaceType, Angle = detect_face_pose(Landmarks, ImgW, ImgH)
 
         # 計算8類邊框（側臉也計算，用於繪製顯示）
-        BBoxList = 計算八類邊框(Landmarks, ImgW, ImgH)
+        BBoxList = calc_eight_class_boxes(Landmarks, ImgW, ImgH)
 
         # 用 MediaPipe landmark 10 精確定位髮際線，取代幾何估算的 class 6
         if not _MpReady:
             ModelFile = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)), 'face_landmarker.task')
             if not os.path.exists(ModelFile):
-                self.after(0, self._寫入訊息,
+                self.after(0, self._log_message,
                            '首次使用 MediaPipe：正在下載模型（約1MB），請稍候...')
-        if _載入MediaPipe模型():
-            HairlineBox = 精確髮際邊框(PilImage, ImgW, ImgH)
+        if _load_mediapipe_model():
+            HairlineBox = detect_hairline_box(PilImage, ImgW, ImgH)
             if HairlineBox:
                 BBoxList = [Item for Item in BBoxList if Item['class'] != 6]
                 BBoxList.append(HairlineBox)
         else:
-            self.after(0, self._寫入訊息,
+            self.after(0, self._log_message,
                        '⚠ MediaPipe 載入失敗，改用幾何估算髮際線')
 
         # 繪製並顯示圖片
-        AnnotatedPil = 繪製關鍵點與框(PilImage, Landmarks, BBoxList, FaceType)
-        self.after(0, self._更新圖片顯示, AnnotatedPil)
+        AnnotatedPil = draw_landmarks_and_boxes(PilImage, Landmarks, BBoxList, FaceType)
+        self.after(0, self._update_image_display, AnnotatedPil)
 
         # 側臉：記錄訊息，不輸出 YOLO 檔
         if FaceType == 'side':
-            self.after(0, self._寫入訊息,
+            self.after(0, self._log_message,
                        f'{BaseName}, 可能是側臉(角度:{Angle:.1f}度)')
             return
         # 歪頭：記錄訊息，但繼續輸出 YOLO 檔
         if FaceType == 'tilt':
-            self.after(0, self._寫入訊息,
+            self.after(0, self._log_message,
                        f'{BaseName}, 可能是歪頭(角度:{Angle:.1f}度)')
 
         # 輸出 YOLO 格式檔
         StemName = os.path.splitext(BaseName)[0]
         OutputPath = os.path.join(OutputDir, StemName + '.txt')
-        Success = 寫入Yolo檔案(BBoxList, OutputPath, ImgW, ImgH)
+        Success = write_yolo_file(BBoxList, OutputPath, ImgW, ImgH)
 
         Elapsed = time.time() - StartTime
         if Success:
-            self.after(0, self._寫入訊息,
+            self.after(0, self._log_message,
                        f'✓ {BaseName}  處理完成 ({Elapsed:.2f}秒)')
         else:
-            self.after(0, self._寫入訊息,
+            self.after(0, self._log_message,
                        f'⚠ {BaseName}: 寫入 YOLO 檔案失敗')
 
     # ── UI 更新（須在主執行緒呼叫）──────────────────────────────────────────────
 
-    def _更新圖片顯示(self, PilImage: Image.Image):
+    def _update_image_display(self, PilImage: Image.Image):
         """將 PIL Image 縮放後顯示在 PicArea"""
         # 計算縮放比例（不放大）
         ScaleW = PIC_AREA_MAX_W / PilImage.width
@@ -702,13 +702,13 @@ class FaceAnnotatorApp(ctk.CTk):
         # 保留參考防止 GC
         self._CurrentImage = CtkImg
 
-    def _寫入訊息(self, Msg: str):
+    def _log_message(self, Msg: str):
         """將訊息 prepend 到 TextInfo 最上方"""
         self.TextInfo.configure(state='normal')
         self.TextInfo.insert('0.0', Msg + '\n')
         self.TextInfo.configure(state='disabled')
 
-    def _重啟按鈕(self):
+    def _enable_buttons(self):
         """重新啟用功能按鈕"""
         self.BtnSingle.configure(state='normal')
         self.BtnBatch.configure(state='normal')
