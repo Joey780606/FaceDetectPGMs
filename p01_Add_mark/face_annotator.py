@@ -718,6 +718,7 @@ class FaceAnnotatorApp(ctk.CTk):
         if not ImagePath:
             return
 
+        self._clear_log()
         self.BtnSingle.configure(state='disabled')
         self.BtnBatch.configure(state='disabled')
 
@@ -749,6 +750,7 @@ class FaceAnnotatorApp(ctk.CTk):
             self._log_message('⚠ 目錄中無支援的圖片檔案')
             return
 
+        self._clear_log()
         self._log_message(f'開始批次處理，共 {len(ImageList)} 張圖片...')
         self.BtnSingle.configure(state='disabled')
         self.BtnBatch.configure(state='disabled')
@@ -901,6 +903,12 @@ class FaceAnnotatorApp(ctk.CTk):
         self.PicArea.configure(image=CtkImg, text='')
         # 保留參考防止 GC
         self._CurrentImage = CtkImg
+
+    def _clear_log(self):
+        """清空 TextInfo 所有內容"""
+        self.TextInfo.configure(state='normal')
+        self.TextInfo.delete('1.0', 'end')
+        self.TextInfo.configure(state='disabled')
 
     def _log_message(self, Msg: str):
         """將訊息 prepend 到 TextInfo 最上方"""
