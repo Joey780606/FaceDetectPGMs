@@ -42,6 +42,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. 使用者選擇 "Yolo+眼眉鼻口髮際下巴8點" 的drop-down後,需再選擇圖片目錄,輸出目錄後,若按下"全目錄處理"button,就依上述1將目錄中所有檔案都進行處理,
  也把每個檔的處理狀況,都寫到"textInfo"裡.
 
+## 套件相容性注意事項
+
+### setuptools 版本限制
+`requirements.txt` 中鎖定 `setuptools==69.5.1`，原因如下：
+
+- `face_recognition_models` 使用 `pkg_resources`（屬於 setuptools）來定位模型檔路徑
+- setuptools 82 起已將 `pkg_resources` 完全移除，導致 `face_recognition_models` 無法 import
+- Python 3.14 預設不附帶 setuptools，安裝時會直接裝到最新版（82+）
+- 解決方式：鎖定 setuptools==69.5.1，此版本仍包含完整的 `pkg_resources`
+
+### 若出現 "Please install face_recognition_models" 錯誤
+依序執行以下指令：
+```
+pip install setuptools==69.5.1
+pip install --force-reinstall git+https://github.com/ageitgey/face_recognition_models
+python main.py
+```
+
 ## Commands
 
 ### 安裝依賴
