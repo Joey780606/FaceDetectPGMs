@@ -343,7 +343,16 @@ def _load_mediapipe_model() -> bool:
     if _MpReady:
         return True
     try:
+        import sys
+        import types
         import urllib.request
+        # mediapipe 的繪圖工具會 import cv2，但本程式不使用繪圖工具。
+        # 若 cv2 因 DLL 問題無法載入，先塞空模組佔位讓 mediapipe 可以正常 import。
+        if 'cv2' not in sys.modules:
+            try:
+                import cv2
+            except Exception:
+                sys.modules['cv2'] = types.ModuleType('cv2')
         import mediapipe as mp
 
         # 模型檔存放於程式同目錄
