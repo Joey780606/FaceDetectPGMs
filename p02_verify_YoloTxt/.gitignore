@@ -1,0 +1,4 @@
+# Python 編譯快取
+__pycache__/
+*.py[codz]
+*$py.class
