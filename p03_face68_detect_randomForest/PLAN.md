@@ -67,7 +67,7 @@ main.py 收集 30 frames（最多 60 秒，500ms/frame）
     ▼（每 frame）
 face_recognizer.AddSample(frame, name)
     │
-    ├─ face_locations + face_landmarks
+    ├─ face_locations + face_landmarks (這二個是 face_recognition library內建的二個函式,不是我們自建的) 
     ├─ extractFeatures → 特徵向量
     ├─ 加入 _Samples[name]
     └─ 自動重訓分類器（_trainClassifier）
