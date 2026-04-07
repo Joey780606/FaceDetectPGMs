@@ -122,3 +122,21 @@ p01_Add_mark/
 
 **注意**：兩個模型偵測到的臉數可能不同（如某張臉光線不足被其中一個模型漏掉），
 距離驗證（15% 圖寬）能防止 MediaPipe 未偵測到目標臉時強行比對到錯誤臉。
+
+### cv2 DLL 載入失敗的處理（Windows 相容性問題）
+某些 Windows 電腦上，opencv 的 `cp37-abi3` wheel 會因缺少系統 DLL 而無法載入，
+導致 mediapipe import 失敗（mediapipe 的繪圖工具 `drawing_utils.py` 會 import cv2）。
+
+**問題鏈**：
+cv2 DLL 載入失敗 → mediapipe import 失敗 → `_load_mediapipe_model()` 回傳 False → 顯示「MediaPipe 載入失敗，改用幾何估算髮際線」
+
+**解決方式**（已實作於 `_load_mediapipe_model`）：
+載入 mediapipe 前先嘗試 import cv2；若失敗，塞一個空模組佔位：
+```python
+if 'cv2' not in sys.modules:
+    try:
+        import cv2
+    except Exception:
+        sys.modules['cv2'] = types.ModuleType('cv2')
+```
+本程式只使用 `FaceLandmarker.detect()`，不呼叫任何 cv2 功能，空模組即可。
