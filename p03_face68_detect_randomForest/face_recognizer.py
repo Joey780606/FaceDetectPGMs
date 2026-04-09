@@ -109,10 +109,9 @@ class FaceRecognizer:
             print(f"[FaceRecognizer] SaveModel 失敗：{Error}")
             return False
 
-    def AddSample(self, Frame: np.ndarray, PersonName: str) -> bool:
+    def AddSample(self, Frame: np.ndarray, PersonName: str) -> tuple:
         """
         從 BGR 影像中偵測人臉，萃取 68 個 landmark 特徵並加入訓練樣本。
-        每次成功加入後自動重新訓練分類器。
 
         Parameters
         ----------
@@ -121,34 +120,63 @@ class FaceRecognizer:
 
         Returns
         -------
-        True 表示至少成功加入一個有效樣本，False 表示未偵測到人臉或特徵無效。
+        (Added: bool, KeyPoints: list)
+          Added     : True 表示至少成功加入一個有效樣本
+          KeyPoints : 每張臉的關鍵點中心座標列表，每個元素為 dict：
+                      {"left_eye": (cx,cy), "right_eye": (cx,cy),
+                       "nose": (cx,cy), "mouth": (cx,cy)}
         """
         try:
             # BGR → RGB（face_recognition 使用 RGB 格式）
             RgbFrame   = Frame[:, :, ::-1].copy()
             Locations  = face_recognition.face_locations(RgbFrame, model="hog")
             if not Locations:
-                return False
+                return False, []
 
             LandmarksList = face_recognition.face_landmarks(RgbFrame, Locations)
             if not LandmarksList:
-                return False
+                return False, []
 
             if PersonName not in self._Samples:
                 self._Samples[PersonName] = []
 
-            Added = False
+            Added     = False
+            KeyPoints = []
             for Lm in LandmarksList:
                 Vec = extractFeatures(Lm)
                 if Vec is not None:
                     self._Samples[PersonName].append(Vec)
                     Added = True
+                    KeyPoints.append(self._extractKeyPointCenters(Lm))
 
-            return Added
+            return Added, KeyPoints
 
         except Exception as Error:
             print(f"[FaceRecognizer] AddSample 失敗：{Error}")
-            return False
+            return False, []
+
+    @staticmethod
+    def _extractKeyPointCenters(Lm: dict) -> dict:
+        """
+        從 face_recognition landmark dict 計算雙眼、鼻子、嘴巴的中心座標。
+
+        Returns
+        -------
+        dict: {"left_eye": (cx,cy), "right_eye": (cx,cy),
+               "nose": (cx,cy), "mouth": (cx,cy)}
+        """
+        def _center(Points):
+            Xs = [p[0] for p in Points]
+            Ys = [p[1] for p in Points]
+            return (int(sum(Xs) / len(Xs)), int(sum(Ys) / len(Ys)))
+
+        MouthPoints = Lm.get('top_lip', []) + Lm.get('bottom_lip', [])
+        return {
+            'left_eye':  _center(Lm['left_eye'])   if Lm.get('left_eye')  else None,
+            'right_eye': _center(Lm['right_eye'])  if Lm.get('right_eye') else None,
+            'nose':      _center(Lm['nose_tip'])   if Lm.get('nose_tip')  else None,
+            'mouth':     _center(MouthPoints)       if MouthPoints         else None,
+        }
 
     def Predict(self, Frame: np.ndarray) -> list:
         """
