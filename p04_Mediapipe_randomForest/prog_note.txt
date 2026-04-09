@@ -1,0 +1,180 @@
+#### 1.使用技術:
+a. MediaPipe: https://github.com/google-ai-edge/mediapipe (用來抓取68個點)
+b. 實測網站: https://code4fukui.github.io/mediapipe-test/facemesh.html
+c.  468點的圖 相關文件資料:
+https://github.com/tensorflow/tfjs-models/blob/master/face-landmarks-detection/mesh_map.jpg
+https://mediapipe-studio.webapps.google.com/demo/face_landmarker?hl=zh-tw
+https://7thsoftware.co.uk/misc/mediapipe/index.html
+ 
+d. 混合分類器（Random Forest + 馬氏距離驗證）, 馬氏距離是再協助判斷Random forest的結果,是不是現在WebCam的人,做到"找不到"的效果.
+e. 列印範例
+
+#### 2.程式功能和疑問:
+{main.py} 主程式,673行 (看一次,問題看過一次)
+{face_recognizer.py} FaceRecognizer類別，辨識核心，由 main.py 引入,351行 (看一次,解問題中)
+{face_feature.py} 從 68 個 landmark 萃取 23 維幾何特徵向量,222行 (OK)
+{random_forest_np.py} 純 NumPy 實作：`DecisionTree`、`RandomForest`、`OnePerson`,335行
+{mp_face_detector.py} 229行, (看到103) (看一次,要看不懂的東西)
+{face_model.npz} 訓練資料儲存檔（執行後自動產生）
+
+#### 3. 學習,辨識流程都在 PLAN.md裡記錄
+
+#### {main.py}
+a. OK區段:
+001~038
+136~297: def _BuildUI(self, mode) 建UI,可以晚點看
+
+b. 要查看的地方
+self._Thread.join(timeout=2.0) OK
+self._Cap.release() OK
+self._InferenceActive   = False OK
+self._LastDetections    = [] OK
+Parts = [f"{Name}: {N} 張" for Name, N in Counts.items()] OK  ===
+Timestamp = datetime.datetime.now().strftime("%H:%M:%S") OK
+self._TxtLog.configure(state="normal") OK
+Frame = self._DrawDetections(Frame, self._LastDetections) OK
+Photo = customtkinter.CTkImage(light_image=Img, size=DisplaySize) OK
+self._WebcamCanvas.configure(image=Photo, text="") OK =====
+
+	# 縮放至 canvas 尺寸，最大不超過 640×480
+	W = min(self._WebcamCanvas.winfo_width(),  640)  #建議印出
+	H = min(self._WebcamCanvas.winfo_height(), 480)
+	DisplaySize = (W, H) if W > 1 and H > 1 else (min(Img.width, 640), min(Img.height, 480))
+	
+threading.Thread(target=Worker, daemon=True).start()  OK
+BestName = Counter(self._DetectNoneDtNames).most_common(1)[0][0] OK
+self.pet.face_detected.emit(f"Hi, {BestName} !") OK
+KnownPersons = self._Recognizer.GetAccumulatedPersons() #建議印出
+Confirm = MsgBox.askyesno(
+self.pet.face_detected.emit("Start learning!")
+if not self._InferenceActive:
+pass
+self.after(0, lambda R=Results: self._OnDetectNoneResult(R))
+
+ 可以晚點看的地方:
+ def _BuildUI(self, mode) -> None: #對著UI看
+
+c. self._LatestFrame
+是從camera抓下來的畫面,是 OpenCV 影像 = 3D numpy 陣列.
+np.ndarray。可以把它想成一個三層的數字表格
+
+```
+ Frame.shape = (480, 640, 3)
+                │    │    └─ 3 個顏色通道：Blue, Green, Red
+                │    └─ 每行 640 個像素（寬）
+                └─ 共 480 行（高）
+
+ Frame[0, 0]   = [210, 180, 140]  ← 左上角像素：B=210, G=180, R=140
+```
+
+#### {face_recognizer.py} 
+a. OK區段:
+```
+ 定義:
+ import face_recognition  #這是 https://github.com/ageitgey/face_recognition 的libaray
+ 
+ 1. 公用變數 __init__ 
+  _ModelPath : String - 通常是 "face_model.npz"
+  _Detector : MpFaceDetector()
+  _Samples : dict 的 key-value 
+  _Classifier : None
+  _Validators : dict 的 key-value 
+  _IsTrained : Boolean, False
+  
+ 2. def LoadModel(self) -> bool:  # Joey: 要試著印 Persons, X, Y出來.
+ 3. def SaveModel(self) -> bool:  # Joey: 要印出資料.
+   np.savez_compressed(... # Joey: 要查
+ 4. def Predict(self, Frame: np.ndarray) -> list:
+   for i, (Loc, Lm) in enumerate(zip(Locations, LandmarksList)): #Joey: 要查
+   
+ 5. Vec = extractFeatures(LandmarkDict) #是指從臉部提取特徵,共23維
+```
+
+b. 要查看的部分:
+Data    = np.load(self._ModelPath, allow_pickle=True) OK
+Persons = list(Data['persons']) #看能否印出來
+del self._Samples[PersonName] OK
+ValidPersons = {Name: Vecs for Name, Vecs in self._Samples.items() if Vecs} OK
+for Vec, Name, Conf in zip(Vecs, Names, Confs): OK ===
+np.savez_compressed( OK
+if self._Validators: #看能否印出來
+for j, (Top, Right, Bottom, Left) in enumerate(ValidBoxes) #看能否印出來
+return [Name for Name, Vecs in self._Samples.items() if Vecs]
+return {Name: len(Vecs) for Name, Vecs in self._Samples.items()}
+for Vec in ValidPersons[Name]: #看能否印出
+ValNames, _ = Validator.predict(Vec.reshape(1, -1))
+
+c. 陣列處理
+```
+ 1. def AddSample ...
+  若 Frame[0, 0] = [210, 180, 140]  ← 左上角像素：B=210, G=180, R=140
+  RgbFrame = Frame[:, :, ::-1].copy()
+
+  意思就是把第3維反轉：BGR → RGB
+  
+  face_recognition 的函式:
+  Locations  = face_recognition.face_locations(RgbFrame, model="hog")
+  LandmarksList = face_recognition.face_landmarks(RgbFrame, Locations)
+```
+
+c. face_locations 和 face_landmarks 都是 face_recognition library 內的函式.不是我們寫的
+
+#### {face_feature.py}
+1\. extractFeatures(Landmarks: dict)
+ a. 從68個特徵點萃取成23維特徵向量
+```
+ 眼睛位置一定要用,眉毛,鼻子,嘴巴,下巴若沒有,CC是採用估算的方式,如下眉毛處理部分:
+ LBrowCenter = _center(LeftBrow)  if LeftBrow  else LeftEyeCenter  - np.array([0.0, 15.0])
+```
+
+ b. 找出15個距離特徵 (距離除以 IOD)
+F01, F02: 左眼寬度, 右眼寬度 
+F03, F04: 左眉寬度, 左眉寬邊 (若沒有就放 -1)
+F05: 鼻梁長度 (若點數未超過2點,就放 -1)
+F06: 鼻翼寬度 (若沒有就放 -1)
+F07: 嘴角寬度
+F08: 左眼→左眉距離 (沒有眉毛就 -1)
+F09: 右眼→右眉距離 (沒有眉毛就 -1)
+F10: 鼻尖→嘴中心距離 (二個值都沒有就 -1)
+F11: 下巴寬度 (沒有就-1)
+F12: 下巴到鼻梁最高點 (二個值都沒有就 -1)
+F13: 左眼中心→鼻尖 (沒鼻尖就 -1)
+F14: 右眼中心→鼻尖 (沒鼻尖就 -1)
+F15: 眼寬不對稱率 (左眼寬 - 右眼寬) /IOD
+
+ c. 角度特徵
+F16: 左眼外角—鼻尖—右眼外角 夾角
+F17: 左嘴角—嘴中心—右嘴角 夾角
+F18: 兩眉連線與水平的仰角（度），仰頭為正 (難)
+
+ d. 比例特徵
+F19: 鼻翼寬 / 嘴角寬
+F20: 嘴角寬 / 瞳距
+F21: 左眼高 / 左眼寬
+F22: 右眼高 / 右眼寬
+F23: 下巴寬 / 臉高
+
+2.要查看的地方
+return np.mean(np.array(Points, dtype=float), axis=0)
+return float(np.linalg.norm(A - B))  #建議印出
+    Vb = B - Vertex
+    NormA = np.linalg.norm(Va)
+    Cos = float(np.clip(np.dot(Va, Vb) / (NormA * NormB), -1.0, 1.0))
+    return float(np.degrees(np.arccos(Cos)))
+    return Pts[np.argmin(Pts[:, 0])]
+F18 = float(np.degrees(np.arctan2(-BrowVec[1], max(abs(BrowVec[0]), 1e-9))))
+
+{mp_face_detector.py} 229行
+1.要查看的地方
+urllib.request.urlretrieve(_MODEL_URL, ModelPath)
+raise RuntimeError(
+BaseOptions = mp_python.BaseOptions(model_asset_path=ModelPath)
+Options     = mp_vision.FaceLandmarkerOptions(
+self._Landmarker = mp_vision.FaceLandmarker.create_from_options(Options)
+H, W = Frame.shape[:2]
+MpImage  = mp.Image(image_format=mp.ImageFormat.SRGB, data=RgbFrame)
+Detection = self._Landmarker.detect(MpImage)
+Points = [self._landmarkToPixel(FaceLms[Idx], W, H) for Idx in Indices]
+XList = [int(Lm.x * W) for Lm in FaceLms]	#印出來看看
+```
+```

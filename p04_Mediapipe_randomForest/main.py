@@ -113,7 +113,7 @@ class MainApp(customtkinter.CTk):
         self._LearnFrameCount   = 0
 
         # 推論執行緒防重入旗標
-        self._InferenceActive   = False
+        self._InferenceActive   = False  #Joey: 寫法重要
 
         # 人臉偵測結果快取（供 _UpdateWebcamView 繪製框用）
         self._LastDetections    = []   # list of (top, right, bottom, left, name, confidence)
@@ -229,7 +229,7 @@ class MainApp(customtkinter.CTk):
             command=self._OnBtnRemove
         )
         self._BtnRemove.pack(side="left", padx=(5, 5), pady=5)
-        self._BtnRemove.pack_forget()  # 隱藏
+        #self._BtnRemove.pack_forget()  # 隱藏
 
         # Row1 下半：學習進度（兩個 Column，各占 1/2），預設隱藏
         self._Row1Bot = customtkinter.CTkFrame(Row1)
@@ -328,7 +328,7 @@ class MainApp(customtkinter.CTk):
         if not Counts:
             self._AppendLog("學習資料：（尚無資料）")
             return
-        Parts = [f"{Name}: {N} 張" for Name, N in Counts.items()]
+        Parts = [f"{Name}: {N} 張" for Name, N in Counts.items()] # Joey: 寫法重要
         self._AppendLog("學習資料：" + "　|　".join(Parts))
 
     def _AppendLog(self, Msg: str) -> None:
@@ -353,7 +353,7 @@ class MainApp(customtkinter.CTk):
             if Ok and Frame is not None:
                 # 繪製上次推論結果的人臉框（使用快取，不在此執行推論）
                 if self._LastDetections:
-                    Frame = self._DrawDetections(Frame, self._LastDetections)
+                    Frame = self._DrawDetections(Frame, self._LastDetections) # Joey: 在UI畫偵測的方框
 
                 # 轉換 BGR → RGB → PIL Image → CTkImage
                 FrameRgb = cv2.cvtColor(Frame, cv2.COLOR_BGR2RGB)
@@ -362,6 +362,7 @@ class MainApp(customtkinter.CTk):
                 # 縮放至 canvas 尺寸，最大不超過 640×480
                 W = min(self._WebcamCanvas.winfo_width(),  640)
                 H = min(self._WebcamCanvas.winfo_height(), 480)
+                #self.print_detailed_data(Id=1, W=self._WebcamCanvas.winfo_width(), H=self._WebcamCanvas.winfo_height())
                 DisplaySize = (W, H) if W > 1 and H > 1 else (min(Img.width, 640), min(Img.height, 480))
 
                 Photo = customtkinter.CTkImage(light_image=Img, size=DisplaySize)
@@ -470,7 +471,7 @@ class MainApp(customtkinter.CTk):
                 if BestName == "Unknown":
                     self._LblDetectName.configure(text="您好,我不認識你,我可以認識你嗎?")
                     if self.pet:
-                        self.pet.face_detected.emit("Sorry, I don't know you...")
+                        self.pet.face_detected.emit("Sorry, I don't know you...")   #這個是PySide,也是Michael寫的寵物程式對接用.
                 else:
                     self._LblDetectName.configure(text=f"Hi, {BestName} 您好,又見到您了")
                     if self.pet:
@@ -661,6 +662,10 @@ class MainApp(customtkinter.CTk):
         except Exception:
             pass
         self.destroy()
+
+    def print_detailed_data(self, **kwargs): # 用法: self.print_detailed_data(Name="Bob", Age=30, City="Taoyuan")
+        for key, value in kwargs.items():
+            print(f"{key}: {value}")
 
 
 # ==============================================================================

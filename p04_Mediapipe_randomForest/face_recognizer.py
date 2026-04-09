@@ -141,7 +141,7 @@ class FaceRecognizer:
 
             Added = False
             for _, LandmarkDict in Detections:
-                Vec = extractFeatures(LandmarkDict)
+                Vec = extractFeatures(LandmarkDict) #Joey: 從臉部提取特徵,共23維
                 if Vec is not None:
                     self._Samples[PersonName].append(Vec)
                     Added = True
@@ -198,7 +198,7 @@ class FaceRecognizer:
             if self._Validators:
                 Names, Confs = self._hybridValidate(Vecs, Names, Confs)
 
-            for j, (Top, Right, Bottom, Left) in enumerate(ValidBoxes):
+            for j, (Top, Right, Bottom, Left) in enumerate(ValidBoxes): #一個影像可能有多個臉,所以j 是第幾個人,和每個人的範圍
                 Results.append((Top, Right, Bottom, Left, Names[j], float(Confs[j])))
 
         except Exception as Error:
@@ -219,7 +219,7 @@ class FaceRecognizer:
 
     def GetSampleCounts(self) -> dict:
         """回傳各人名的訓練樣本數量 {人名: 數量}。"""
-        return {Name: len(Vecs) for Name, Vecs in self._Samples.items()}
+        return {Name: len(Vecs) for Name, Vecs in self._Samples.items()}    #Joey: 一個人可能有多個訓練樣本
 
     def RemovePerson(self, PersonName: str) -> bool:
         """
@@ -257,7 +257,7 @@ class FaceRecognizer:
         """
         try:
             # 過濾掉沒有樣本的人名
-            ValidPersons = {Name: Vecs for Name, Vecs in self._Samples.items() if Vecs}
+            ValidPersons = {Name: Vecs for Name, Vecs in self._Samples.items() if Vecs} # Joey: 從_Samples這個 dict,過濾出有樣本的人,並建立新的dict
             if not ValidPersons:
                 self._Classifier = None
                 self._Validators = {}
