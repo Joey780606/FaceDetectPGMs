@@ -17,7 +17,7 @@ DEFAULT_N_TREES       = 100    # 隨機森林樹的數量
 DEFAULT_MAX_DEPTH     = 12     # 決策樹最大深度
 DEFAULT_MIN_SAMPLES   = 2      # 節點分裂最小樣本數
 UNKNOWN_THRESHOLD     = 0.45   # 最高類別機率低於此值 → 視為 Unknown
-MAHAL_UNKNOWN_THRESH  = 4.0    # 單人模式馬氏距離閾值（> 此值 → Unknown）
+MAHAL_UNKNOWN_THRESH  = 8.0    # 單人模式馬氏距離閾值（> 此值 → Unknown）
 
 
 # ==============================================================================

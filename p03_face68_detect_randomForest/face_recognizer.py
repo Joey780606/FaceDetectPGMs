@@ -144,8 +144,6 @@ class FaceRecognizer:
                     self._Samples[PersonName].append(Vec)
                     Added = True
 
-            if Added:
-                self._trainClassifier()
             return Added
 
         except Exception as Error:
@@ -218,6 +216,18 @@ class FaceRecognizer:
     def GetAccumulatedPersons(self) -> list:
         """同 GetKnownPersons（供 main.py 呼叫）。"""
         return self.GetKnownPersons()
+
+    def FitClassifier(self) -> bool:
+        """
+        根據目前累積的樣本訓練（或重新訓練）分類器。
+        學習階段結束後呼叫一次，避免每個樣本都重訓。
+
+        Returns
+        -------
+        True 表示訓練成功，False 表示樣本不足或訓練失敗。
+        """
+        self._trainClassifier()
+        return self._IsTrained
 
     def GetSampleCounts(self) -> dict:
         """回傳各人名的訓練樣本數量 {人名: 數量}。"""

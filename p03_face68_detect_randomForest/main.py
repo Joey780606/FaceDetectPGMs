@@ -229,7 +229,7 @@ class MainApp(customtkinter.CTk):
             command=self._OnBtnRemove
         )
         self._BtnRemove.pack(side="left", padx=(5, 5), pady=5)
-        self._BtnRemove.pack_forget()  # 隱藏
+        #self._BtnRemove.pack_forget()  # 隱藏
 
         # Row1 下半：學習進度（兩個 Column，各占 1/2），預設隱藏
         self._Row1Bot = customtkinter.CTkFrame(Row1)
@@ -558,6 +558,9 @@ class MainApp(customtkinter.CTk):
         self._PbarFrames.set(0)
         self._Row1Bot.grid_remove()  # 隱藏進度區域
         self._BtnLearn.configure(state="normal")
+
+        # 學習結束後統一訓練分類器（避免每個樣本都重訓造成學習慢）
+        self._Recognizer.FitClassifier()
 
         # 儲存人臉編碼
         SaveOk = self._Recognizer.SaveModel()
