@@ -530,6 +530,13 @@ class MainApp(customtkinter.CTk):
 
     def _StartLearning(self, PersonName: str) -> None:
         """開始學習模式，收集指定人物的人臉編碼樣本。"""
+        # 若 Detect 正在執行中，先停止
+        if self._DetectNoneActive:
+            self._DetectNoneActive = False
+            self._LastDetections   = []
+            self._BtnDetectNone.configure(text="Detect", state="normal")
+            self._LblDetectName.configure(text="")
+
         self._LearnActive     = True
         self._LearnName       = PersonName
         self._LearnStartTime  = time.time()
