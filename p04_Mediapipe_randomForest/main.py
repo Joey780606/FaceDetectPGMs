@@ -118,6 +118,9 @@ class MainApp(customtkinter.CTk):
         # 人臉偵測結果快取（供 _UpdateWebcamView 繪製框用）
         self._LastDetections    = []   # list of (top, right, bottom, left, name, confidence)
 
+        # 學習時的關鍵點快取（供 _UpdateWebcamView 在學習中疊加顯示）
+        self._LastLearnKeyPoints = []  # list of {"left_eye":(cx,cy), "right_eye":..., "nose":..., "mouth":...}
+
         # UI 圖像參照（防止被 GC 回收）
         self._CurrentPhotoImage = None
 
@@ -355,6 +358,10 @@ class MainApp(customtkinter.CTk):
                 if self._LastDetections:
                     Frame = self._DrawDetections(Frame, self._LastDetections) # Joey: 在UI畫偵測的方框
 
+                # 學習模式：疊加雙眼/鼻子/嘴巴中心點
+                if self._LearnActive and self._LastLearnKeyPoints:
+                    Frame = self._DrawKeyPoints(Frame, self._LastLearnKeyPoints)
+
                 # 轉換 BGR → RGB → PIL Image → CTkImage
                 FrameRgb = cv2.cvtColor(Frame, cv2.COLOR_BGR2RGB)
                 Img = Image.fromarray(FrameRgb)
@@ -388,6 +395,56 @@ class MainApp(customtkinter.CTk):
             cv2.rectangle(DrawFrame, (Left, Bottom - 25), (Right, Bottom), Color, cv2.FILLED)
             cv2.putText(DrawFrame, Label, (Left + 6, Bottom - 6),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        return DrawFrame
+
+    def _DrawLearnKeyPoints(self, Frame: np.ndarray, KeyPointsList: list) -> np.ndarray:
+        """
+        在 Frame 上繪製學習模式偵測到的雙眼、鼻子、嘴巴中心點。
+        各部位用不同顏色的實心圓點標示。
+        """
+        # 各部位顏色（BGR）
+        Colors = {
+            'left_eye':  (255, 200,   0),   # 天藍
+            'right_eye': (255, 200,   0),   # 天藍
+            'nose':      (  0, 255, 150),   # 綠
+            'mouth':     (  0, 100, 255),   # 橘紅
+        }
+        DrawFrame = Frame.copy()
+        for KP in KeyPointsList:
+            for Part, Color in Colors.items():
+                Pt = KP.get(Part)
+                if Pt is not None:
+                    cv2.circle(DrawFrame, Pt, 5, Color, -1)          # 實心點
+                    cv2.circle(DrawFrame, Pt, 6, (255, 255, 255), 1) # 白色外框
+        return DrawFrame
+    
+    def _DrawKeyPoints(self, Frame: np.ndarray, KeyPointsList: list) -> np.ndarray:
+        """
+        在 Frame 上繪製學習時的關鍵點中心（雙眼、鼻子、嘴巴）。
+
+        Parameters
+        ----------
+        KeyPointsList : list of dict，每個 dict 對應一張臉：
+                        {"left_eye": (cx,cy), "right_eye": (cx,cy),
+                         "nose": (cx,cy), "mouth": (cx,cy)}
+        """
+        DrawFrame = Frame.copy()
+        # 各部位的顏色（BGR）與標籤
+        StyleMap = {
+            'left_eye':  ((255, 180,   0), "L"),   # 藍色
+            'right_eye': ((255, 180,   0), "R"),   # 藍色
+            'nose':      ((  0, 220,   0), "N"),   # 綠色
+            'mouth':     ((  0,   0, 220), "M"),   # 紅色
+        }
+        for FaceKP in KeyPointsList:
+            for PartName, (Color, Label) in StyleMap.items():
+                Pt = FaceKP.get(PartName)
+                if Pt is None:
+                    continue
+                Cx, Cy = Pt
+                cv2.circle(DrawFrame, (Cx, Cy), 6, Color, -1)          # 實心圓點
+                cv2.putText(DrawFrame, Label, (Cx + 8, Cy + 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, Color, 1)  # 部位標籤
         return DrawFrame
 
     # --------------------------------------------------------------------------
@@ -537,7 +594,7 @@ class MainApp(customtkinter.CTk):
             self._LastDetections   = []
             self._BtnDetectNone.configure(text="Detect", state="normal")
             self._LblDetectName.configure(text="")
-            
+
         self._LearnActive     = True
         self._LearnName       = PersonName
         self._LearnStartTime  = time.time()
@@ -558,8 +615,9 @@ class MainApp(customtkinter.CTk):
 
     def _StopLearning(self) -> None:
         """結束學習模式，儲存人臉編碼。"""
-        self._LearnActive    = False
-        self._LastDetections = []   # 清除人臉框覆蓋層
+        self._LearnActive        = False
+        self._LastDetections     = []   # 清除人臉框覆蓋層
+        self._LastLearnKeyPoints = []   # 清除學習關鍵點覆蓋層
         self._LblRemain.configure(text="Remaining study seconds: --")
         self._LblLearnFrames.configure(text="Number of frames learned: 0")
         self._PbarTime.set(0)
@@ -619,8 +677,9 @@ class MainApp(customtkinter.CTk):
 
                     def Worker():
                         try:
-                            Added = self._Recognizer.AddSample(FrameCopy, PersonName)
-                            self.after(0, lambda A=Added: self._OnLearnSampleAdded(A))
+                            # AddSample 回傳 (Added: bool, KeyPoints: list)
+                            Added, KeyPoints = self._Recognizer.AddSample(FrameCopy, PersonName)
+                            self.after(0, lambda A=Added, KP=KeyPoints: self._OnLearnSampleAdded(A, KP))
                         except Exception as Error:
                             print(f"[MainApp] 學習推論失敗：{Error}")
                         finally:
@@ -633,7 +692,7 @@ class MainApp(customtkinter.CTk):
         # 排程下一次 tick
         self.after(LEARN_TICK_MS, self._LearningTick)
 
-    def _OnLearnSampleAdded(self, Added: bool) -> None:
+    def _OnLearnSampleAdded(self, Added: bool, KeyPoints: list) -> None:
         """學習樣本加入回調（在主執行緒執行）。"""
         if not self._LearnActive:
             return
@@ -642,6 +701,8 @@ class MainApp(customtkinter.CTk):
             self._LblLearnFrames.configure(
                 text=f"Number of frames learned: {self._LearnFrameCount}"
             )
+            # 更新關鍵點快取，供 _UpdateWebcamView 疊加顯示
+            self._LastLearnKeyPoints = KeyPoints
 
     # --------------------------------------------------------------------------
     # 隱藏按鈕的 stub（保留 widget 定義相容性）

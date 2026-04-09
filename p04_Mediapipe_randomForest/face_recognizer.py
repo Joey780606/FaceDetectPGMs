@@ -116,10 +116,9 @@ class FaceRecognizer:
             print(f"[FaceRecognizer] SaveModel 失敗：{Error}")
             return False
 
-    def AddSample(self, Frame: np.ndarray, PersonName: str) -> bool:
+    def AddSample(self, Frame: np.ndarray, PersonName: str) -> tuple:
         """
         從 BGR 影像中偵測人臉，萃取 68 個等效 landmark 特徵並加入訓練樣本。
-        每次成功加入後自動重新訓練分類器。
 
         Parameters
         ----------
@@ -128,31 +127,61 @@ class FaceRecognizer:
 
         Returns
         -------
-        True 表示至少成功加入一個有效樣本，False 表示未偵測到人臉或特徵無效。
+        (Added: bool, KeyPoints: list)
+          Added     : True 表示至少成功加入一個有效樣本
+          KeyPoints : 每張臉的關鍵點中心座標列表，每個元素為 dict：
+                      {"left_eye": (cx,cy), "right_eye": (cx,cy),
+                       "nose": (cx,cy), "mouth": (cx,cy)}
         """
         try:
             # MpFaceDetector.detect() 一次回傳 [(BoundingBox, LandmarkDict), ...]
             Detections = self._Detector.detect(Frame)
             if not Detections:
-                return False
+                return False, []
 
             if PersonName not in self._Samples:
                 self._Samples[PersonName] = []
 
             Added = False
+            KeyPoints = []
             for _, LandmarkDict in Detections:
                 Vec = extractFeatures(LandmarkDict) #Joey: 從臉部提取特徵,共23維
                 if Vec is not None:
                     self._Samples[PersonName].append(Vec)
                     Added = True
+                    KeyPoints.append(self._extractKeyPointCenters(LandmarkDict))
 
             if Added:
                 self._trainClassifier()
-            return Added
+            return Added, KeyPoints
 
         except Exception as Error:
             print(f"[FaceRecognizer] AddSample 失敗：{Error}")
-            return False
+            return False, []
+
+
+    @staticmethod
+    def _extractKeyPointCenters(Lm: dict) -> dict:
+        """
+        從 face_recognition landmark dict 計算雙眼、鼻子、嘴巴的中心座標。
+
+        Returns
+        -------
+        dict: {"left_eye": (cx,cy), "right_eye": (cx,cy),
+               "nose": (cx,cy), "mouth": (cx,cy)}
+        """
+        def _center(Points):
+            Xs = [p[0] for p in Points]
+            Ys = [p[1] for p in Points]
+            return (int(sum(Xs) / len(Xs)), int(sum(Ys) / len(Ys)))
+
+        MouthPoints = Lm.get('top_lip', []) + Lm.get('bottom_lip', [])
+        return {
+            'left_eye':  _center(Lm['left_eye'])   if Lm.get('left_eye')  else None,
+            'right_eye': _center(Lm['right_eye'])  if Lm.get('right_eye') else None,
+            'nose':      _center(Lm['nose_tip'])   if Lm.get('nose_tip')  else None,
+            'mouth':     _center(MouthPoints)       if MouthPoints         else None,
+        }
 
     def Predict(self, Frame: np.ndarray) -> list:
         """
@@ -219,7 +248,7 @@ class FaceRecognizer:
 
     def GetSampleCounts(self) -> dict:
         """回傳各人名的訓練樣本數量 {人名: 數量}。"""
-        return {Name: len(Vecs) for Name, Vecs in self._Samples.items()}    #Joey: 一個人可能有多個訓練樣本
+        return {Name: len(Vecs) for Name, Vecs in self._Samples.items()}    #Joey: 一個人可能有多個訓練樣本,Vecs是多階的資料
 
     def RemovePerson(self, PersonName: str) -> bool:
         """

@@ -168,10 +168,10 @@ class MpFaceDetector:
             for FaceLms in Detection.face_landmarks:
                 try:
                     # 建立 68 點 dict（像素座標）
-                    LandmarkDict = self._buildLandmarkDict(FaceLms, W, H)
+                    LandmarkDict = self._buildLandmarkDict(FaceLms, W, H)   # Joey: 此程式的 function
 
                     # 計算邊界框（從全部 landmark 的 min/max）
-                    BoundingBox = self._buildBoundingBox(FaceLms, W, H)
+                    BoundingBox = self._buildBoundingBox(FaceLms, W, H)   # Joey: 此程式的 function
 
                     Results.append((BoundingBox, LandmarkDict))
                 except Exception as FaceError:
