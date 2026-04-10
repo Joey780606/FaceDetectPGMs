@@ -31,10 +31,12 @@ from model_store import UNKNOWN_DIR_NAME
 # --- 常數 ---
 CNN_INPUT_SIZE        = 96    # 輸入影像邊長（px）
 BATCH_SIZE            = 32
-TRAIN_EPOCHS_FULL     = 50    # 從頭訓練 epoch 數
-TRAIN_EPOCHS_FINETUNE = 20    # Fine-tune epoch 數
+TRAIN_EPOCHS_FULL     = 50    # 從頭訓練最大 epoch 數
+TRAIN_EPOCHS_FINETUNE = 20    # Fine-tune 最大 epoch 數
 UNKNOWN_THRESHOLD     = 0.60  # 信心值低於此 → Unknown
-UNKNOWN_SAMPLE_COUNT  = 100   # 每次訓練產生的合成 unknown 樣本數
+UNKNOWN_SAMPLE_COUNT  = 60    # 每次訓練產生的合成 unknown 樣本數
+EARLY_STOP_PATIENCE   = 5     # 連續幾個 epoch 沒進步則提早停止
+EARLY_STOP_MIN_DELTA  = 0.001 # 視為「有進步」的最小 Loss 改善量
 
 
 # ==============================================================================
@@ -309,6 +311,9 @@ class FaceRecognizer:
             Scheduler = optim.lr_scheduler.StepLR(Optimizer, step_size=15, gamma=0.5)
 
             self._Model.train()
+            BestLoss     = float("inf")
+            NoImprovCount = 0
+
             for Epoch in range(1, Epochs + 1):
                 TotalLoss = 0.0
                 Batches   = 0
@@ -324,8 +329,19 @@ class FaceRecognizer:
                     Batches   += 1
                 AvgLoss = TotalLoss / max(Batches, 1)
                 Scheduler.step()
+
                 if ProgressCallback:
                     ProgressCallback(Epoch, Epochs, AvgLoss)
+
+                # Early Stopping：Loss 連續 N 個 epoch 沒有顯著改善則提早停止
+                if BestLoss - AvgLoss > EARLY_STOP_MIN_DELTA:
+                    BestLoss      = AvgLoss
+                    NoImprovCount = 0
+                else:
+                    NoImprovCount += 1
+                    if NoImprovCount >= EARLY_STOP_PATIENCE:
+                        print(f"[FaceRecognizer] Early stopping at epoch {Epoch}/{Epochs}")
+                        break
 
             self._Model.eval()
             return True

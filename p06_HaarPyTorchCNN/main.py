@@ -459,8 +459,11 @@ class MainApp(customtkinter.CTk):
         self._BtnDetect.configure(state="disabled")
 
         def TrainWorker():
+            self._LastReportedEpoch = 0
+
             def OnProgress(Epoch, TotalEpochs, Loss):
-                # 每 5 個 epoch 回報一次，避免 Log 太多
+                self._LastReportedEpoch = Epoch
+                # 每 5 個 epoch 回報一次，或最後一個 epoch
                 if Epoch % 5 == 0 or Epoch == TotalEpochs:
                     self.after(0, lambda E=Epoch, T=TotalEpochs, L=Loss:
                         self._appendLog(f"  Epoch {E:3d}/{T}  Loss: {L:.4f}"))
@@ -483,8 +486,9 @@ class MainApp(customtkinter.CTk):
         self._BtnDetect.configure(state="normal")
 
         if Success:
-            Persons = self._Recognizer.getPersonList()
-            self._appendLog(f"訓練完成！已知人員：{', '.join(Persons)}")
+            Persons     = self._Recognizer.getPersonList()
+            StoppedEpoch = getattr(self, "_LastReportedEpoch", "?")
+            self._appendLog(f"訓練完成（共 {StoppedEpoch} epochs）！已知人員：{', '.join(Persons)}")
             MsgBox.showinfo("完成", f"訓練完成！\n已知人員：{', '.join(Persons)}")
         else:
             self._appendLog("訓練失敗，請確認至少有 2 位人員的資料。")
