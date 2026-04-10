@@ -29,7 +29,7 @@ import torchvision.transforms as T
 from model_store import UNKNOWN_DIR_NAME
 
 # --- 常數 ---
-CNN_INPUT_SIZE        = 96    # 輸入影像邊長（px）
+CNN_INPUT_SIZE        = 96     # 輸入影像邊長（px）
 BATCH_SIZE            = 32
 TRAIN_EPOCHS_FULL     = 50    # 從頭訓練最大 epoch 數
 TRAIN_EPOCHS_FINETUNE = 20    # Fine-tune 最大 epoch 數

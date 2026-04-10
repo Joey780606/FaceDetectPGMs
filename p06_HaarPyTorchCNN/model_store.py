@@ -84,15 +84,11 @@ class ModelStore:
             return []
 
     def removePerson(self, Name: str) -> bool:
-        """刪除某人的所有訓練資料，並清除 __unknown__ 樣本（下次訓練重新產生）。"""
+        """刪除某人的所有訓練資料資料夾。"""
         try:
             PersonDir = os.path.join(self.DATA_DIR, Name)
             if os.path.isdir(PersonDir):
                 shutil.rmtree(PersonDir)
-            # 移除人員後，__unknown__ 的 Type A 樣本已過時，清除讓下次重新產生
-            UnknownDir = os.path.join(self.DATA_DIR, UNKNOWN_DIR_NAME)
-            if os.path.isdir(UnknownDir):
-                shutil.rmtree(UnknownDir)
             return True
         except Exception as Error:
             print(f"[ModelStore] 刪除人員資料失敗：{Error}")
