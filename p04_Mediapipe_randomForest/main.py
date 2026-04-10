@@ -625,6 +625,9 @@ class MainApp(customtkinter.CTk):
         self._Row1Bot.grid_remove()  # 隱藏進度區域
         self._BtnLearn.configure(state="normal")
 
+        # 學習結束，執行一次完整分類器重訓（取代原本每幀重訓的做法）
+        self._Recognizer.FinishLearning()
+
         # 儲存人臉編碼
         SaveOk = self._Recognizer.SaveModel()
         KnownPersons = self._Recognizer.GetKnownPersons()
@@ -677,8 +680,8 @@ class MainApp(customtkinter.CTk):
 
                     def Worker():
                         try:
-                            # AddSample 回傳 (Added: bool, KeyPoints: list)
-                            Added, KeyPoints = self._Recognizer.AddSample(FrameCopy, PersonName)
+                            # Retrain=False：學習期間只收集樣本，不重訓（避免每幀訓練 100 棵樹）
+                            Added, KeyPoints = self._Recognizer.AddSample(FrameCopy, PersonName, Retrain=False)
                             self.after(0, lambda A=Added, KP=KeyPoints: self._OnLearnSampleAdded(A, KP))
                         except Exception as Error:
                             print(f"[MainApp] 學習推論失敗：{Error}")

@@ -116,7 +116,8 @@ class FaceRecognizer:
             print(f"[FaceRecognizer] SaveModel 失敗：{Error}")
             return False
 
-    def AddSample(self, Frame: np.ndarray, PersonName: str) -> tuple:
+    def AddSample(self, Frame: np.ndarray, PersonName: str,
+                  Retrain: bool = False) -> tuple:
         """
         從 BGR 影像中偵測人臉，萃取 68 個等效 landmark 特徵並加入訓練樣本。
 
@@ -124,6 +125,9 @@ class FaceRecognizer:
         ----------
         Frame      : BGR 格式的 numpy 影像（來自 OpenCV）
         PersonName : 要學習的人名
+        Retrain    : 加入樣本後是否立即重訓分類器。
+                     批次學習時傳 False（預設），學習結束後再呼叫 FinishLearning()。
+                     單次加入時傳 True 可立即更新分類器。
 
         Returns
         -------
@@ -145,19 +149,30 @@ class FaceRecognizer:
             Added = False
             KeyPoints = []
             for _, LandmarkDict in Detections:
-                Vec = extractFeatures(LandmarkDict) #Joey: 從臉部提取特徵,共23維
+                Vec = extractFeatures(LandmarkDict)  # Joey: 從臉部提取特徵,共23維
                 if Vec is not None:
                     self._Samples[PersonName].append(Vec)
                     Added = True
                     KeyPoints.append(self._extractKeyPointCenters(LandmarkDict))
 
-            if Added:
+            # Retrain=False 時跳過重訓（批次學習期間），避免每幀都訓練 100 棵樹
+            if Added and Retrain:
                 self._trainClassifier()
             return Added, KeyPoints
 
         except Exception as Error:
             print(f"[FaceRecognizer] AddSample 失敗：{Error}")
             return False, []
+
+    def FinishLearning(self) -> None:
+        """
+        批次學習結束後呼叫，執行一次完整的分類器重訓。
+        搭配 AddSample(Retrain=False) 使用，避免每幀重訓的效能問題。
+        """
+        try:
+            self._trainClassifier()
+        except Exception as Error:
+            print(f"[FaceRecognizer] FinishLearning 失敗：{Error}")
 
 
     @staticmethod
