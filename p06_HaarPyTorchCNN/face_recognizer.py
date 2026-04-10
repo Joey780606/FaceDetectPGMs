@@ -161,7 +161,17 @@ class FaceRecognizer:
             50% 隨機雜訊 + 幾何圖形（教 CNN「完全陌生的特徵」）
         """
         UnknownDir = os.path.join(DataDir, UNKNOWN_DIR_NAME)
-        # 每次重新產生，清除舊檔
+
+        # 若已有足夠樣本，直接沿用，不重新產生
+        if os.path.isdir(UnknownDir):
+            ExistingCount = len([
+                F for F in os.listdir(UnknownDir)
+                if F.lower().endswith(".jpg")
+            ])
+            if ExistingCount >= UNKNOWN_SAMPLE_COUNT:
+                return
+
+        # 第一次，或樣本不足時才產生
         if os.path.isdir(UnknownDir):
             shutil.rmtree(UnknownDir)
         os.makedirs(UnknownDir)
