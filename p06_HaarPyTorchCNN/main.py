@@ -26,8 +26,8 @@ from face_recognizer import FaceRecognizer
 from model_store     import ModelStore
 
 # --- 常數 ---
-LEARN_TARGET_FRAMES   = 60     # 學習目標收集 frame 數
-LEARN_TIMEOUT_SECONDS = 90     # 學習逾時（秒）
+LEARN_TARGET_FRAMES   = 100    # 學習目標收集 frame 數
+LEARN_TIMEOUT_SECONDS = 120    # 學習逾時（秒）
 LEARN_TICK_MS         = 500    # 學習抓圖間隔（ms）
 DETECT_TICK_MS        = 300    # 辨識推論間隔（ms）
 UI_REFRESH_MS         = 30     # Webcam 畫面更新間隔（ms）

@@ -31,12 +31,13 @@ from model_store import UNKNOWN_DIR_NAME
 # --- 常數 ---
 CNN_INPUT_SIZE        = 96     # 輸入影像邊長（px）
 BATCH_SIZE            = 32
-TRAIN_EPOCHS_FULL     = 50    # 從頭訓練最大 epoch 數
-TRAIN_EPOCHS_FINETUNE = 20    # Fine-tune 最大 epoch 數
-UNKNOWN_THRESHOLD     = 0.60  # 信心值低於此 → Unknown
+TRAIN_EPOCHS_FULL     = 80    # 從頭訓練最大 epoch 數
+TRAIN_EPOCHS_FINETUNE = 30    # Fine-tune 最大 epoch 數
+UNKNOWN_THRESHOLD     = 0.70  # 信心值低於此 → Unknown
 UNKNOWN_SAMPLE_COUNT  = 60    # 每次訓練產生的合成 unknown 樣本數
-EARLY_STOP_PATIENCE   = 5     # 連續幾個 epoch 沒進步則提早停止
-EARLY_STOP_MIN_DELTA  = 0.001 # 視為「有進步」的最小 Loss 改善量
+EARLY_STOP_PATIENCE        = 5     # 連續幾個 epoch 沒進步則提早停止
+EARLY_STOP_MIN_DELTA       = 0.001 # 視為「有進步」的最小 Loss 改善量
+EMBED_SIMILARITY_THRESHOLD = 0.60  # 嵌入向量餘弦相似度低於此 → Unknown
 
 
 # ==============================================================================
@@ -72,6 +73,11 @@ class FaceCNN(nn.Module):
         X = X.view(X.size(0), -1)   # flatten → (B, 128)
         X = self._Classifier(X)
         return X
+
+    def extractEmbedding(self, X: torch.Tensor) -> torch.Tensor:
+        """提取 128-dim 臉部嵌入向量（不經過分類層）。"""
+        X = self._Features(X)
+        return X.view(X.size(0), -1)   # (B, 128)
 
 
 # ==============================================================================
@@ -130,6 +136,7 @@ class FaceRecognizer:
         self._Model      = None
         self._LabelToIdx = {}   # {人名: class_index}
         self._IdxToLabel = {}   # {class_index: 人名}
+        self._Prototypes = {}   # {人名: np.array(128,)}，已知人員的平均嵌入向量
         self._Device     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # --------------------------------------------------------------------------
@@ -147,6 +154,7 @@ class FaceRecognizer:
         self._Model      = None
         self._LabelToIdx = {}
         self._IdxToLabel = {}
+        self._Prototypes = {}
 
     # --------------------------------------------------------------------------
     # 合成 Unknown 樣本產生
@@ -354,6 +362,8 @@ class FaceRecognizer:
                         break
 
             self._Model.eval()
+            # 訓練完成後計算每位已知人員的 prototype（平均嵌入向量）
+            self._computePrototypes(DataDir)
             return True
 
         except Exception as Error:
@@ -361,6 +371,50 @@ class FaceRecognizer:
             import traceback
             traceback.print_exc()
             return False
+
+    def _computePrototypes(self, DataDir: str) -> None:
+        """
+        計算每位已知人員的平均嵌入向量（prototype）並儲存。
+        推論時用於餘弦相似度檢查，偵測真實陌生人臉。
+        """
+        if self._Model is None:
+            return
+        self._Prototypes = {}
+        self._Model.eval()
+
+        for Name in self._LabelToIdx:
+            if Name == UNKNOWN_DIR_NAME:
+                continue
+            PersonDir = os.path.join(DataDir, Name)
+            if not os.path.isdir(PersonDir):
+                continue
+
+            Embeddings = []
+            for FileName in os.listdir(PersonDir):
+                if not FileName.lower().endswith(".jpg"):
+                    continue
+                try:
+                    Img = cv2.imread(
+                        os.path.join(PersonDir, FileName), cv2.IMREAD_GRAYSCALE
+                    )
+                    if Img is None:
+                        continue
+                    Img    = cv2.resize(Img, (CNN_INPUT_SIZE, CNN_INPUT_SIZE))
+                    Tensor = torch.tensor(
+                        Img.astype(np.float32) / 255.0
+                    ).unsqueeze(0).unsqueeze(0).to(self._Device)
+                    with torch.no_grad():
+                        Emb = self._Model.extractEmbedding(Tensor)  # (1, 128)
+                    Embeddings.append(Emb.squeeze(0).cpu().numpy())
+                except Exception as Error:
+                    print(f"[FaceRecognizer] prototype 計算失敗({Name})：{Error}")
+
+            if Embeddings:
+                # 平均後做 L2 正規化，方便後續用餘弦相似度比較
+                MeanEmb = np.mean(Embeddings, axis=0)
+                Norm    = np.linalg.norm(MeanEmb) + 1e-8
+                self._Prototypes[Name] = MeanEmb / Norm
+                print(f"[FaceRecognizer] prototype 計算完成：{Name}（{len(Embeddings)} 張）")
 
     # --------------------------------------------------------------------------
     # 推論
@@ -394,9 +448,23 @@ class FaceRecognizer:
             Confidence = MaxProb.item()
             Name       = self._IdxToLabel.get(MaxIdx.item(), "Unknown")
 
-            # CNN 判定為 unknown 類別，或信心值低於門檻
+            # Check 1：CNN 判定為 unknown 類別，或 softmax 信心值不足
             if Name == UNKNOWN_DIR_NAME or Confidence < UNKNOWN_THRESHOLD:
                 return "Unknown", Confidence
+
+            # Check 2：嵌入向量餘弦相似度（防止真實陌生人臉被誤判）
+            if self._Prototypes:
+                Emb  = self._Model.extractEmbedding(Tensor)       # (1, 128)
+                EmbNp = Emb.squeeze(0).cpu().numpy()
+                Norm  = np.linalg.norm(EmbNp) + 1e-8
+                EmbNp = EmbNp / Norm
+                MaxSim = max(
+                    float(np.dot(EmbNp, Proto))
+                    for Proto in self._Prototypes.values()
+                )
+                if MaxSim < EMBED_SIMILARITY_THRESHOLD:
+                    return "Unknown", Confidence
+
             return Name, Confidence
 
         except Exception as Error:
@@ -414,6 +482,7 @@ class FaceRecognizer:
                 "StateDict":  self._Model.state_dict(),
                 "LabelToIdx": self._LabelToIdx,
                 "NumClasses": len(self._LabelToIdx),
+                "Prototypes": self._Prototypes,
             }, ModelPath)
             return True
         except Exception as Error:
@@ -429,6 +498,7 @@ class FaceRecognizer:
             NumClasses       = Checkpoint["NumClasses"]
             self._LabelToIdx = Checkpoint["LabelToIdx"]
             self._IdxToLabel = {Idx: Name for Name, Idx in self._LabelToIdx.items()}
+            self._Prototypes = Checkpoint.get("Prototypes", {})
             self._Model      = FaceCNN(NumClasses).to(self._Device)
             self._Model.load_state_dict(Checkpoint["StateDict"])
             self._Model.eval()

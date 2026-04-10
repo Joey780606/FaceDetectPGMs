@@ -13,9 +13,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Webcam → HaarFaceDetector → 裁切 96×96 灰階 ROI
                                   ↓
                            FaceRecognizer (CNN)
+                                  ↓
+                    Check 1：softmax 信心值 ≥ 70%？
+                    Check 2：與已知人員 prototype 相似度 ≥ 60%？
                            ↓               ↓
-                        已知人員        __unknown__
-                     (name + conf%)    (conf < 60%)
+                        已知人員          Unknown
+                     (name + conf%)
                                   ↓
                               顯示結果
 ```
@@ -31,10 +34,10 @@ p06_HaarPyTorchCNN/
 ├── requirements.txt     # 依賴套件
 ├── data/
 │   └── faces/
-│       ├── {人名}/      # 每人 60 張 96×96 灰階 ROI
-│       └── __unknown__/ # 合成 unknown 樣本（每次訓練自動產生，100 張）
+│       ├── {人名}/      # 每人 100 張 96×96 灰階 ROI
+│       └── __unknown__/ # 合成 unknown 樣本（第一次訓練產生，60 張，之後沿用）
 └── model/
-    └── face_cnn.pth     # 訓練好的模型 + 標籤 dict
+    └── face_cnn.pth     # 訓練好的模型 + 標籤 dict + prototypes
 ```
 
 ### CNN 架構（FaceCNN）
@@ -58,26 +61,54 @@ FC: 128 → N+1（N 位已知人員 + 1 個 __unknown__ 類別）
 
 ## Design Decisions
 
-### Unknown 人臉處理（方案 B）
-- 訓練時自動產生 `__unknown__` 類別（100 張合成樣本），無需外部資料集
+### Unknown 人臉處理（方案 B + Prototype 雙重檢查）
+
+#### __unknown__ 合成類別
+- 訓練時自動產生 `__unknown__` 類別（60 張合成樣本），無需外部資料集
 - 合成樣本組成：50% 極端變形已知人臉 + 50% 隨機雜訊與幾何圖形
-- 推論時雙重判斷：CNN 預測為 `__unknown__` **或** softmax 信心值 < 60% → 顯示 "Unknown"
+- 第一次訓練產生後沿用，不重複產生（移除人員後也不需重新產生）
 - `listPersons()` 自動過濾 `__unknown__`，對 UI 透明
 
+#### 推論時雙重檢查（predict）
+未訓練的陌生人臉容易被 softmax 誤判為已知人員，因此加入第二道 Embedding 相似度檢查：
+
+```
+Check 1：softmax 信心值 < UNKNOWN_THRESHOLD (70%)
+         → Unknown
+
+Check 2：輸入嵌入向量與所有已知人員 prototype 的餘弦相似度
+         最大值 < EMBED_SIMILARITY_THRESHOLD (60%)
+         → Unknown
+
+兩道都通過 → 顯示名字
+```
+
+#### Prototype（平均嵌入向量）
+- 訓練完成後，對每位已知人員計算其所有訓練圖的 128-dim 嵌入向量平均值
+- 做 L2 正規化後存入 `model/face_cnn.pth`（`Prototypes` key）
+- 程式啟動時隨模型一併載入
+
 ### 新增人員策略（Method B Fine-tune）
-- 每人收集 60 張臉部 ROI，存入 `data/faces/{人名}/`
-- 第 1 人：從頭訓練 50 epochs
-- 第 N 人（N ≥ 2）：載入舊 backbone，擴展 FC 層，fine-tune 20 epochs（避免遺忘舊人）
+- 每人收集 100 張臉部 ROI，存入 `data/faces/{人名}/`
+- 第 1 人：從頭訓練，上限 80 epochs
+- 第 N 人（N ≥ 2）：載入舊 backbone，擴展 FC 層，fine-tune 上限 30 epochs（避免遺忘舊人）
+- Early Stopping：連續 5 個 epoch Loss 改善 < 0.001 時提早停止
 - 資料增強：水平翻轉、亮度對比 ±20%、旋轉 ±10°、縮放 ±10%
 
 ### 訓練門檻
 - 至少 1 位真實人員即可訓練（`__unknown__` 類別自動補足）
 
-### 辨識設定
-- 輸入尺寸：96×96 灰階（CNN_INPUT_SIZE）
-- Unknown 門檻：60%（UNKNOWN_THRESHOLD）
-- 學習收集張數：60 張（LEARN_TARGET_FRAMES）
-- 學習逾時：90 秒（LEARN_TIMEOUT_SECONDS）
+### 辨識參數
+| 參數 | 常數名 | 值 |
+|------|--------|----|
+| CNN 輸入尺寸 | CNN_INPUT_SIZE | 96×96 |
+| Softmax 信心值門檻 | UNKNOWN_THRESHOLD | 70% |
+| Embedding 相似度門檻 | EMBED_SIMILARITY_THRESHOLD | 60% |
+| 學習收集張數 | LEARN_TARGET_FRAMES | 100 張 |
+| 學習逾時 | LEARN_TIMEOUT_SECONDS | 120 秒 |
+| 從頭訓練上限 | TRAIN_EPOCHS_FULL | 80 epochs |
+| Fine-tune 上限 | TRAIN_EPOCHS_FINETUNE | 30 epochs |
+| Early Stop patience | EARLY_STOP_PATIENCE | 5 epochs |
 
 ## 授權（商用安全）
 
