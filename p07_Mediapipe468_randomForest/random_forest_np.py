@@ -301,9 +301,34 @@ class OnePerson:
             self._InvCov    = np.eye(X.shape[1]) if X.ndim == 2 else None
             self._IsTrained = False
 
-    def predict(self, X: np.ndarray) -> tuple:
+    def getMahalDist(self, x: np.ndarray) -> float:
+        """
+        計算單一樣本與此人均值的馬氏距離（供外部組合列印用）。
+
+        Parameters
+        ----------
+        x : shape (n_features,)
+
+        Returns
+        -------
+        float，距離值；未訓練時回傳 inf。
+        """
+        if not self._IsTrained or self._Mean is None:
+            return float('inf')
+        try:
+            Diff    = x - self._Mean
+            MahalSq = float(Diff @ self._InvCov @ Diff)
+            return float(np.sqrt(max(0.0, MahalSq)))
+        except Exception:
+            return float('inf')
+
+    def predict(self, X: np.ndarray, Silent: bool = False) -> tuple:
         """
         以馬氏距離判斷各樣本，回傳 (人名列表, 信心度陣列)。
+
+        Parameters
+        ----------
+        Silent : True 時不列印馬氏距離（供 _hybridValidate 組合列印時使用）。
         """
         if not self._IsTrained or self._Mean is None:
             return ["Unknown"] * len(X), np.zeros(len(X))
@@ -312,13 +337,12 @@ class OnePerson:
         Confs = []
         for x in X:
             try:
-                Diff      = x - self._Mean
-                MahalSq   = float(Diff @ self._InvCov @ Diff)
-                MahalDist = float(np.sqrt(max(0.0, MahalSq)))
+                MahalDist = self.getMahalDist(x)
                 # 距離轉信心度：距離越小 → 信心度越高（最大 1.0）
                 Conf = float(np.exp(-0.5 * MahalDist))
-                # DEBUG：印出馬氏距離，方便校正閾值（確認後可移除此行）
-                print(f"[OnePerson] 馬氏距離={MahalDist:.2f}  閾值={self._UnknownThreshold:.1f}  {'✓通過' if MahalDist <= self._UnknownThreshold else '✗Unknown'}")
+                if not Silent:
+                    print(f"[OnePerson] 馬氏距離={MahalDist:.2f}  閾值={self._UnknownThreshold:.1f}  "
+                          f"{'✓通過' if MahalDist <= self._UnknownThreshold else '✗Unknown'}")
                 if MahalDist > self._UnknownThreshold:
                     Names.append("Unknown")
                 else:

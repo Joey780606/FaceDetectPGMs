@@ -229,6 +229,29 @@ class FaceRecognizer:
         """若已有訓練資料且分類器完成訓練，回傳 True。"""
         return self._IsTrained and self._Classifier is not None
 
+    def SetThresholds(self, MahalThresh: float = None, RfThresh: float = None) -> None:
+        """
+        動態更新辨識閾值，無需重訓模型。
+
+        Parameters
+        ----------
+        MahalThresh : 馬氏距離閾值（OnePerson 模式 + 多人模式的馬氏驗證器）
+        RfThresh    : Random Forest 信心度閾值（多人模式主分類器）
+        """
+        try:
+            if MahalThresh is not None:
+                # 單人模式：直接更新主分類器
+                if isinstance(self._Classifier, OnePerson):
+                    self._Classifier._UnknownThreshold = MahalThresh
+                # 多人模式：更新各人的馬氏距離驗證器
+                for Val in self._Validators.values():
+                    Val._UnknownThreshold = MahalThresh
+            if RfThresh is not None:
+                if isinstance(self._Classifier, RandomForest):
+                    self._Classifier._UnknownThreshold = RfThresh
+        except Exception as Error:
+            print(f"[FaceRecognizer] SetThresholds 失敗：{Error}")
+
     def GetKnownPersons(self) -> list:
         """回傳目前有訓練樣本的人名列表。"""
         return [Name for Name, Vecs in self._Samples.items() if Vecs]
@@ -346,9 +369,12 @@ class FaceRecognizer:
         """
         FinalNames = []
         FinalConfs = []
+        RfThresh   = self._Classifier._UnknownThreshold
+
         for Vec, Name, Conf in zip(Vecs, Names, Confs):
             if Name == "Unknown":
                 # RF 已判為 Unknown，不再額外驗證
+                print(f"[辨識] RF信心度={Conf:.2f}(閾{RfThresh:.2f}) ✗Unknown")
                 FinalNames.append("Unknown")
                 FinalConfs.append(float(Conf))
                 continue
@@ -356,13 +382,23 @@ class FaceRecognizer:
             Validator = self._Validators.get(Name)
             if Validator is None or not Validator.IsTrained:
                 # 找不到對應的驗證器，保留 RF 結果
+                print(f"[辨識] RF信心度={Conf:.2f}(閾{RfThresh:.2f}) ✓{Name}  馬氏驗證器不存在")
                 FinalNames.append(Name)
                 FinalConfs.append(float(Conf))
                 continue
 
-            # 用馬氏距離驗證：若距離過大則改判 Unknown
-            ValNames, _ = Validator.predict(Vec.reshape(1, -1))
-            if ValNames[0] == "Unknown":
+            # 取馬氏距離後以 Silent=True 呼叫 predict（避免重複列印）
+            MahalDist   = Validator.getMahalDist(Vec)
+            MahalThresh = Validator._UnknownThreshold
+            ValNames, _ = Validator.predict(Vec.reshape(1, -1), Silent=True)
+            FinalName   = ValNames[0]
+
+            MahalMark = "✓通過" if FinalName != "Unknown" else "✗Unknown"
+            print(f"[辨識] RF信心度={Conf:.2f}(閾{RfThresh:.2f}) ✓{Name}"
+                  f"  馬氏距離={MahalDist:.2f}(閾{MahalThresh:.1f}) {MahalMark}"
+                  f"  → {FinalName}")
+
+            if FinalName == "Unknown":
                 FinalNames.append("Unknown")
                 FinalConfs.append(0.0)
             else:

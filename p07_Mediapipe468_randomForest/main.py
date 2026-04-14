@@ -24,6 +24,7 @@ from PIL import Image
 import tkinter.messagebox as MsgBox
 
 from face_recognizer import FaceRecognizer
+from random_forest_np import UNKNOWN_THRESHOLD, MAHAL_UNKNOWN_THRESH
 
 # --- 應用程式常數 ---
 LEARN_TARGET_FRAMES       = 30     # 學習模式目標收集 frame 數
@@ -139,14 +140,14 @@ class MainApp(customtkinter.CTk):
     # UI 建立
     # --------------------------------------------------------------------------
     def _BuildUI(self) -> None:
-        """建立 4-row CustomTkinter UI 介面。"""
+        """建立 5-row CustomTkinter UI 介面。"""
         self.title("人臉辨識系統（MediaPipe 468 + Random Forest）")
         self.protocol("WM_DELETE_WINDOW", self._OnClose)
         self.resizable(True, True)
 
-        # 使用 grid 佈局，讓 Row2 可垂直延伸，Row0/1/3 固定高度
+        # 使用 grid 佈局，讓 Row3 可垂直延伸，Row0/1/2/4 固定高度
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)   # 只有 Row2 垂直延伸
+        self.grid_rowconfigure(3, weight=1)   # 只有 Row3（Webcam）垂直延伸
 
         # Row 0：辨識功能列
         Row0 = customtkinter.CTkFrame(self)
@@ -250,9 +251,55 @@ class MainApp(customtkinter.CTk):
         self._PbarFrames.grid(row=1, column=0, sticky="ew", padx=5, pady=(2, 5))
         self._PbarFrames.set(0)
 
-        # Row 2：Webcam 畫面（垂直延伸）
+        # Row 2：閾值調整（馬氏距離閾值 + RF 信心度閾值）
+        Row2Thresh = customtkinter.CTkFrame(self)
+        Row2Thresh.grid(row=2, column=0, sticky="ew", padx=10, pady=5)
+        Row2Thresh.grid_columnconfigure(0, weight=1)
+        Row2Thresh.grid_columnconfigure(1, weight=1)
+
+        # 左欄：MAHAL_UNKNOWN_THRESH（馬氏距離閾值）
+        ColMahal = customtkinter.CTkFrame(Row2Thresh)
+        ColMahal.grid(row=0, column=0, sticky="ew", padx=(5, 3), pady=5)
+        ColMahal.grid_columnconfigure(1, weight=1)
+
+        customtkinter.CTkLabel(ColMahal, text="馬氏距離閾值", anchor="w").grid(
+            row=0, column=0, sticky="w", padx=(8, 4), pady=5
+        )
+        self._SldMahal = customtkinter.CTkSlider(
+            ColMahal, from_=1.0, to=50.0,
+            number_of_steps=490,
+            command=self._OnMahalChanged
+        )
+        self._SldMahal.set(MAHAL_UNKNOWN_THRESH)
+        self._SldMahal.grid(row=0, column=1, sticky="ew", padx=4, pady=5)
+        self._LblMahalVal = customtkinter.CTkLabel(
+            ColMahal, text=f"{MAHAL_UNKNOWN_THRESH:.1f}", width=44, anchor="e"
+        )
+        self._LblMahalVal.grid(row=0, column=2, padx=(4, 8), pady=5)
+
+        # 右欄：UNKNOWN_THRESHOLD（RF 信心度閾值）
+        ColRf = customtkinter.CTkFrame(Row2Thresh)
+        ColRf.grid(row=0, column=1, sticky="ew", padx=(3, 5), pady=5)
+        ColRf.grid_columnconfigure(1, weight=1)
+
+        customtkinter.CTkLabel(ColRf, text="RF 信心度閾值", anchor="w").grid(
+            row=0, column=0, sticky="w", padx=(8, 4), pady=5
+        )
+        self._SldRf = customtkinter.CTkSlider(
+            ColRf, from_=0.05, to=0.95,
+            number_of_steps=90,
+            command=self._OnRfThreshChanged
+        )
+        self._SldRf.set(UNKNOWN_THRESHOLD)
+        self._SldRf.grid(row=0, column=1, sticky="ew", padx=4, pady=5)
+        self._LblRfVal = customtkinter.CTkLabel(
+            ColRf, text=f"{UNKNOWN_THRESHOLD:.2f}", width=44, anchor="e"
+        )
+        self._LblRfVal.grid(row=0, column=2, padx=(4, 8), pady=5)
+
+        # Row 3：Webcam 畫面（垂直延伸）
         Row2 = customtkinter.CTkFrame(self)
-        Row2.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
+        Row2.grid(row=3, column=0, sticky="nsew", padx=10, pady=5)
         Row2.grid_columnconfigure(0, weight=1)
         Row2.grid_rowconfigure(0, weight=1)
 
@@ -264,9 +311,9 @@ class MainApp(customtkinter.CTk):
         )
         self._WebcamCanvas.grid(row=0, column=0, sticky="nsew")
 
-        # Row 3：學習資料摘要 Log
+        # Row 4：學習資料摘要 Log
         Row3 = customtkinter.CTkFrame(self)
-        Row3.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
+        Row3.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 10))
         Row3.grid_columnconfigure(0, weight=1)
 
         self._TxtLog = customtkinter.CTkTextbox(Row3, height=120, state="disabled")
@@ -652,6 +699,19 @@ class MainApp(customtkinter.CTk):
             )
             # 更新關鍵點快取，供 _UpdateWebcamView 疊加顯示
             self._LastLearnKeyPoints = KeyPoints
+
+    # --------------------------------------------------------------------------
+    # 閾值調整 Slider 回調
+    # --------------------------------------------------------------------------
+    def _OnMahalChanged(self, Value: float) -> None:
+        """馬氏距離閾值 Slider 拖動時，即時更新顯示值與辨識器閾值。"""
+        self._LblMahalVal.configure(text=f"{Value:.1f}")
+        self._Recognizer.SetThresholds(MahalThresh=Value)
+
+    def _OnRfThreshChanged(self, Value: float) -> None:
+        """RF 信心度閾值 Slider 拖動時，即時更新顯示值與辨識器閾值。"""
+        self._LblRfVal.configure(text=f"{Value:.2f}")
+        self._Recognizer.SetThresholds(RfThresh=Value)
 
     # --------------------------------------------------------------------------
     # 關閉處理
