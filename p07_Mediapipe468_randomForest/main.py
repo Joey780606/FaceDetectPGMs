@@ -634,7 +634,7 @@ class MainApp(customtkinter.CTk):
         self.after(0, self._LearningTick)
 
     def _StopLearning(self) -> None:
-        """結束學習模式，重訓分類器並儲存模型。"""
+        """結束學習模式：清除 UI 狀態，並以背景執行緒執行重訓與儲存。"""
         self._LearnActive        = False
         self._LastDetections     = []   # 清除人臉框覆蓋層
         self._LastLearnKeyPoints = []   # 清除學習關鍵點覆蓋層
@@ -643,27 +643,44 @@ class MainApp(customtkinter.CTk):
         self._PbarTime.set(0)
         self._PbarFrames.set(0)
         self._Row1Bot.grid_remove()    # 隱藏進度區域
-        self._BtnLearn.configure(state="normal")
 
-        # 學習結束，執行一次完整分類器重訓
-        self._Recognizer.FinishLearning()
+        # 訓練期間停用所有功能按鈕，Log 提示
+        self._SetButtonsEnabled(False)
+        self._AppendLog(f"[{self._LearnName}] 樣本收集完畢，正在訓練分類器...")
 
-        # 儲存模型
-        SaveOk = self._Recognizer.SaveModel()
+        # 快照學習結果（避免背景執行緒讀取時被覆蓋）
+        LearnName  = self._LearnName
+        FrameCount = self._LearnFrameCount
+
+        def TrainWorker():
+            """背景執行緒：重訓 + 儲存，完成後通知主執行緒。"""
+            try:
+                self._Recognizer.FinishLearning()
+                SaveOk = self._Recognizer.SaveModel()
+            except Exception as Error:
+                print(f"[MainApp] 訓練/儲存失敗：{Error}")
+                SaveOk = False
+            self.after(0, lambda: self._OnTrainDone(LearnName, FrameCount, SaveOk))
+
+        threading.Thread(target=TrainWorker, daemon=True).start()
+
+    def _OnTrainDone(self, LearnName: str, FrameCount: int, SaveOk: bool) -> None:
+        """訓練完成後回到主執行緒：啟用按鈕、顯示結果對話框。"""
+        self._SetButtonsEnabled(True)
         KnownPersons = self._Recognizer.GetKnownPersons()
         PersonCount  = len(KnownPersons)
         PersonList   = ', '.join(KnownPersons) if KnownPersons else "（無）"
 
         if SaveOk:
             Msg = (
-                f"已完成 [{self._LearnName}] 的學習！\n"
-                f"本次學習 {self._LearnFrameCount} 次\n\n"
+                f"已完成 [{LearnName}] 的學習！\n"
+                f"本次學習 {FrameCount} 次\n\n"
                 f"目前已登錄人物（共 {PersonCount} 人）：\n{PersonList}"
             )
         else:
             Msg = (
                 f"學習完成，但模型儲存失敗。\n"
-                f"本次學習 {self._LearnFrameCount} 次\n"
+                f"本次學習 {FrameCount} 次\n"
                 f"目前已登錄人物（共 {PersonCount} 人）：{PersonList}"
             )
         MsgBox.showinfo("學習完成", Msg)
