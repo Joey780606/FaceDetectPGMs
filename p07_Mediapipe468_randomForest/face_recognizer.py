@@ -20,6 +20,7 @@ FaceRecognizer 類別：整合 MpFaceLandmarker、face_feature_3d 與 random_for
 """
 
 import os
+import pickle
 import numpy as np
 
 from mp_face_landmarker import MpFaceLandmarker
@@ -27,7 +28,8 @@ from face_feature_3d import extractFeatures3D
 from random_forest_np import RandomForest, OnePerson
 
 # 模型儲存路徑（相對於執行目錄）
-DEFAULT_MODEL_PATH = "face_model.npz"
+DEFAULT_MODEL_PATH    = "face_model.npz"
+DEFAULT_RF_CACHE_PATH = "face_model_rf.pkl"   # 已訓練 RF 的快取（加速重啟）
 
 
 class FaceRecognizer:
@@ -37,8 +39,10 @@ class FaceRecognizer:
     萃取 1404 維特徵向量後交由純 NumPy 分類器進行學習與辨識。
     """
 
-    def __init__(self, ModelPath: str = DEFAULT_MODEL_PATH):
+    def __init__(self, ModelPath: str = DEFAULT_MODEL_PATH,
+                 CachePath: str = DEFAULT_RF_CACHE_PATH):
         self._ModelPath  = ModelPath
+        self._CachePath  = CachePath
         # MediaPipe 偵測器（直接取得 468 3D 點）
         self._Detector   = MpFaceLandmarker()
         # 訓練資料：{人名: [特徵向量 (np.ndarray), ...]}
@@ -75,7 +79,14 @@ class FaceRecognizer:
                 Mask = Y == Idx
                 self._Samples[str(Name)] = list(X[Mask])
 
+            # 優先從 pickle 快取載入已訓練的分類器（跳過重新訓練）
+            if self._loadRfCache():
+                return self._IsTrained
+
+            # 快取不存在或過期，重新訓練後存快取
             self._trainClassifier()
+            if self._IsTrained:
+                self._saveRfCache()
             return self._IsTrained
 
         except Exception as Error:
@@ -110,6 +121,8 @@ class FaceRecognizer:
                 Y=Y,
                 persons=np.array(Persons, dtype=object),
             )
+            # npz 已寫入，同步更新 RF 快取（下次啟動可直接載入，跳過重訓）
+            self._saveRfCache()
             return True
 
         except Exception as Error:
@@ -406,3 +419,49 @@ class FaceRecognizer:
                 FinalConfs.append(float(Conf))
 
         return FinalNames, np.array(FinalConfs, dtype=float)
+
+    def _saveRfCache(self) -> None:
+        """
+        將目前已訓練的分類器序列化成 pickle 快取。
+        同時記錄 npz 的修改時間，下次啟動時用來判斷快取是否仍有效。
+        """
+        try:
+            CacheData = {
+                'NpzMtime':   os.path.getmtime(self._ModelPath),
+                'Classifier': self._Classifier,
+                'Validators': self._Validators,
+                'IsTrained':  self._IsTrained,
+            }
+            with open(self._CachePath, 'wb') as F:
+                pickle.dump(CacheData, F, protocol=pickle.HIGHEST_PROTOCOL)
+            print(f"[FaceRecognizer] RF 快取已儲存：{self._CachePath}")
+        except Exception as Error:
+            print(f"[FaceRecognizer] 儲存 RF 快取失敗：{Error}")
+
+    def _loadRfCache(self) -> bool:
+        """
+        嘗試從 pickle 快取還原已訓練的分類器。
+
+        Returns
+        -------
+        True  : 快取有效，已還原分類器，可跳過重新訓練。
+        False : 快取不存在或已過期（npz 比快取新），需重新訓練。
+        """
+        try:
+            if not os.path.exists(self._CachePath):
+                return False
+            with open(self._CachePath, 'rb') as F:
+                CacheData = pickle.load(F)
+            # 確認快取對應的 npz 修改時間與目前 npz 一致（容差 1 秒）
+            NpzMtime = os.path.getmtime(self._ModelPath)
+            if abs(CacheData.get('NpzMtime', 0) - NpzMtime) > 1.0:
+                print("[FaceRecognizer] RF 快取過期（npz 已更新），需重新訓練。")
+                return False
+            self._Classifier = CacheData['Classifier']
+            self._Validators = CacheData['Validators']
+            self._IsTrained  = CacheData['IsTrained']
+            print("[FaceRecognizer] RF 快取載入成功，跳過重新訓練。")
+            return True
+        except Exception as Error:
+            print(f"[FaceRecognizer] 載入 RF 快取失敗：{Error}")
+            return False

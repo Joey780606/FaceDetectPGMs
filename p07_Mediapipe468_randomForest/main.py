@@ -126,9 +126,9 @@ class MainApp(customtkinter.CTk):
         # UI 圖像參照（防止被 GC 回收）
         self._CurrentPhotoImage = None
 
-        # 核心元件
+        # 核心元件（Recognizer 在背景執行緒初始化，先設為 None）
         self._Webcam     = WebcamManager(CameraIndex=0)
-        self._Recognizer = FaceRecognizer()
+        self._Recognizer = None
 
         # 建立 UI
         self._BuildUI()
@@ -323,8 +323,8 @@ class MainApp(customtkinter.CTk):
     # 初始化
     # --------------------------------------------------------------------------
     def _InitComponents(self) -> None:
-        """初始化攝影機與人臉辨識模型。"""
-        # 1. 開啟攝影機
+        """初始化攝影機，並以背景執行緒載入 MediaPipe 與 RF 分類器。"""
+        # 1. 開啟攝影機（快速）
         CamOk = self._Webcam.Open()
         if not CamOk:
             MsgBox.showwarning(
@@ -332,15 +332,41 @@ class MainApp(customtkinter.CTk):
                 "無法開啟攝影機，請確認連線後重新啟動。\n應用程式將以無攝影機模式執行。"
             )
 
-        # 2. 載入人臉模型
-        try:
-            self._Recognizer.LoadModel()
-            self._UpdateSummary()
-        except Exception as Error:
-            print(f"[MainApp] 模型載入：{Error}")
-
-        # 3. 啟動 webcam 畫面更新迴圈
+        # 2. 立刻啟動 webcam 畫面更新（攝影機已開，不需等模型）
         self.after(UI_REFRESH_MS, self._UpdateWebcamView)
+
+        # 3. 停用功能按鈕，Log 提示初始化中
+        self._SetButtonsEnabled(False)
+        self._AppendLog("系統初始化中，請稍候...")
+
+        # 4. 背景執行緒：建立 FaceRecognizer（含 MediaPipe 載入）+ LoadModel（含 RF 訓練或快取）
+        def InitWorker():
+            try:
+                Recognizer = FaceRecognizer()
+                Recognizer.LoadModel()
+                self._Recognizer = Recognizer
+            except Exception as Error:
+                print(f"[MainApp] 背景初始化失敗：{Error}")
+            finally:
+                self.after(0, self._OnInitDone)
+
+        threading.Thread(target=InitWorker, daemon=True).start()
+
+    def _OnInitDone(self) -> None:
+        """背景初始化完成後回到主執行緒：啟用按鈕並更新資料摘要。"""
+        self._SetButtonsEnabled(True)
+        if self._Recognizer is not None:
+            self._UpdateSummary()
+            self._AppendLog("初始化完成，系統就緒。")
+        else:
+            self._AppendLog("初始化失敗，請查看 console 輸出。")
+
+    def _SetButtonsEnabled(self, Enabled: bool) -> None:
+        """統一啟用或停用功能按鈕（初始化未完成時停用）。"""
+        State = "normal" if Enabled else "disabled"
+        self._BtnDetectNone.configure(state=State)
+        self._BtnLearn.configure(state=State)
+        self._BtnRemove.configure(state=State)
 
     # --------------------------------------------------------------------------
     # 工具方法
@@ -706,12 +732,14 @@ class MainApp(customtkinter.CTk):
     def _OnMahalChanged(self, Value: float) -> None:
         """馬氏距離閾值 Slider 拖動時，即時更新顯示值與辨識器閾值。"""
         self._LblMahalVal.configure(text=f"{Value:.1f}")
-        self._Recognizer.SetThresholds(MahalThresh=Value)
+        if self._Recognizer is not None:
+            self._Recognizer.SetThresholds(MahalThresh=Value)
 
     def _OnRfThreshChanged(self, Value: float) -> None:
         """RF 信心度閾值 Slider 拖動時，即時更新顯示值與辨識器閾值。"""
         self._LblRfVal.configure(text=f"{Value:.2f}")
-        self._Recognizer.SetThresholds(RfThresh=Value)
+        if self._Recognizer is not None:
+            self._Recognizer.SetThresholds(RfThresh=Value)
 
     # --------------------------------------------------------------------------
     # 關閉處理
@@ -722,10 +750,11 @@ class MainApp(customtkinter.CTk):
         self._DetectNoneActive = False
         self._LearnActive      = False
         self._Webcam.Close()
-        try:
-            self._Recognizer._Detector.close()
-        except Exception:
-            pass
+        if self._Recognizer is not None:
+            try:
+                self._Recognizer._Detector.close()
+            except Exception:
+                pass
         self.destroy()
 
 
