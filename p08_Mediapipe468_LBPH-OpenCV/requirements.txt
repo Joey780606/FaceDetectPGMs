@@ -1,0 +1,8 @@
+mediapipe>=0.10
+# 注意：必須安裝 opencv-contrib-python（含 cv2.face 模組），
+#        不可與 opencv-python 同時安裝。
+#        若已安裝 opencv-python，請先移除：pip uninstall opencv-python
+opencv-contrib-python>=4.8
+numpy>=1.26
+customtkinter>=5.2
+Pillow>=10.0
