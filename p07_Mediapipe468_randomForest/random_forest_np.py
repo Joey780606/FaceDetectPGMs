@@ -13,7 +13,7 @@ random_forest_np.py
 import numpy as np
 
 # ── 超參數預設值 ───────────────────────────────────────────────────────────────
-DEFAULT_N_TREES       = 100    # 隨機森林樹的數量
+DEFAULT_N_TREES       = 50     # 隨機森林樹的數量
 DEFAULT_MAX_DEPTH     = 12     # 決策樹最大深度
 DEFAULT_MIN_SAMPLES   = 2      # 節點分裂最小樣本數
 UNKNOWN_THRESHOLD     = 0.45   # 最高類別機率低於此值 → 視為 Unknown
