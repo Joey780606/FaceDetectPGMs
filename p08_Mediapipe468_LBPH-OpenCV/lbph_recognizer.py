@@ -55,12 +55,8 @@ _CANONICAL_5PT = np.array([
 ], dtype=np.float32)
 
 # 預設 LBPH 距離閾值（超過此值判為 Unknown）
-DEFAULT_THRESHOLD = 80.0
-
-# CLAHE 實例（模組層級共用，避免重複建立）
-# clipLimit=2.0：限制對比度放大倍率，防止過度增強雜訊
-# tileGridSize=(8,8)：對 100×100 影像適中，提供局部自適應光線補償
-_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+# 實測：已知人距離 < 85，陌生人距離 > 87，安全邊界約 85~87，設 85 偏保守
+DEFAULT_THRESHOLD = 85.0
 
 
 # ==============================================================================
@@ -114,10 +110,6 @@ def alignFace(Frame: np.ndarray, FivePts: np.ndarray) -> np.ndarray | None:
             Gray = cv2.cvtColor(Warped, cv2.COLOR_BGR2GRAY)
         else:
             Gray = Warped
-
-        # CLAHE 光線歸一化：減少光源方向與亮度變化對 LBPH 的干擾
-        # 學習與偵測兩階段均套用，確保前處理一致
-        Gray = _CLAHE.apply(Gray.astype(np.uint8))
 
         return Gray.astype(np.uint8)
 

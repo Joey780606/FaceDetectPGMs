@@ -223,6 +223,7 @@ class FaceRecognizer:
                 Name = self._LabelToName.get(LabelIdx, "Unknown")
                 if LabelIdx == -1:
                     Name = "Unknown"
+                print(f"[FaceRecognizer] → {Name} (Conf={Conf:.2f})")
 
                 Top, Right, Bottom, Left = BoundingBox
                 Results.append((Top, Right, Bottom, Left, Name, float(Conf)))

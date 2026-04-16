@@ -26,14 +26,14 @@ import tkinter.messagebox as MsgBox
 from face_recognizer import FaceRecognizer
 
 # --- 應用程式常數 ---
-LEARN_TARGET_FRAMES       = 30     # 學習模式目標收集 frame 數
+LEARN_TARGET_FRAMES       = 200     # 學習模式目標收集 frame 數
 LEARN_TIMEOUT_SECONDS     = 60     # 學習模式最長等待時間（秒）
 UI_REFRESH_MS             = 30     # webcam 畫面更新間隔（毫秒）
-LEARN_TICK_MS             = 500    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
+LEARN_TICK_MS             = 200    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
 DETECT_TICK_MS            = 300    # 辨識時每次推論的間隔
 DETECT_NONE_DETECT_TARGET = 5      # 多數決累積 frame 數
 
-LBPH_DEFAULT_THRESHOLD    = 80.0   # LBPH 距離閾值預設值（越低越嚴格）
+LBPH_DEFAULT_THRESHOLD    = 85.0   # LBPH 距離閾值預設值（越低越嚴格）
 LBPH_THRESHOLD_MIN        = 20.0   # Slider 最小值
 LBPH_THRESHOLD_MAX        = 200.0  # Slider 最大值
 
@@ -341,6 +341,8 @@ class MainApp(customtkinter.CTk):
         """背景初始化完成後回到主執行緒：啟用按鈕並更新資料摘要。"""
         self._SetButtonsEnabled(True)
         if self._Recognizer is not None:
+            # Recognizer 初始化完成後，將 slider 目前值同步至辨識器
+            self._Recognizer.SetThresholds(LbphThresh=self._SldLbph.get())
             self._UpdateSummary()
             self._AppendLog("初始化完成，系統就緒。")
         else:
