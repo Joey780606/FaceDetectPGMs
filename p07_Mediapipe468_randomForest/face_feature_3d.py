@@ -10,8 +10,9 @@ face_feature_3d.py
   3. 所有相對位移除以 IOD → 消除距離鏡頭遠近造成的縮放干擾
   4. 攤平為 468 × 3 = 1404 維向量
 
-側臉判斷：
-  若 IOD < MIN_IOD_NORM（歸一化空間閾值），視為側臉或偵測異常，回傳 None。
+退化資料防護：
+  若 IOD < MIN_IOD_NORM（歸一化空間閾值），視為 MediaPipe 偵測退化（兩眼幾乎重疊），回傳 None。
+  注意：真實側臉的 3D IOD 遠大於此閾值，不會被過濾；側臉辨識由分類器自然處理。
 """
 
 import numpy as np
@@ -23,7 +24,7 @@ _RIGHT_EYE_INDICES = np.array([362, 385, 387, 263, 373, 380])
 # 鼻尖索引（原點）
 _NOSE_TIP_INDEX    = 1
 
-# 歸一化空間瞳距最小合理值；小於此值視為側臉或偵測異常
+# 歸一化空間瞳距最小合理值；小於此值視為 MediaPipe 偵測退化（兩眼幾乎重疊），非側臉過濾
 MIN_IOD_NORM = 1e-5
 
 
@@ -39,7 +40,7 @@ def extractFeatures3D(Landmarks3D: np.ndarray) -> np.ndarray | None:
 
     Returns
     -------
-    np.ndarray, shape=(1404,)  或  None（側臉 / IOD 過小 / 萃取失敗）
+    np.ndarray, shape=(1404,)  或  None（IOD 退化 / 萃取失敗）
     """
     try:
         if Landmarks3D.shape != (468, 3):
@@ -52,7 +53,7 @@ def extractFeatures3D(Landmarks3D: np.ndarray) -> np.ndarray | None:
         Iod = float(np.linalg.norm(LeftEyeCenter - RightEyeCenter))
 
         if Iod < MIN_IOD_NORM:
-            # 側臉或偵測異常，跳過此幀
+            # MediaPipe 偵測退化（兩眼幾乎重疊），跳過此幀
             return None
 
         # ── 相對座標（鼻尖為原點）────────────────────────────────────────────

@@ -43,7 +43,8 @@ main.py
 2. 計算 3D 瞳距（IOD）：左眼中心與右眼中心的歐氏距離（歸一化座標）
 3. 所有相對位移 ÷ IOD → 消除臉離鏡頭遠近造成的縮放干擾
 4. 攤平為 468 × 3 = 1404 維向量
-5. 若 IOD < MIN_IOD_NORM（1e-5）→ 視為側臉或異常，回傳 None
+5. 若 IOD < MIN_IOD_NORM（1e-5）→ 視為 MediaPipe 偵測退化（兩眼幾乎重疊），回傳 None
+   ※ 真實側臉的 3D IOD 遠大於此閾值，不會被過濾；側臉辨識完全由分類器處理
 
 ### random_forest_np.py — 純 NumPy 分類器
 

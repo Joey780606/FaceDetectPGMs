@@ -212,7 +212,7 @@ class FaceRecognizer:
             if not Detections:
                 return Results
 
-            # 萃取各張臉的特徵向量（過濾側臉 / IOD 不足的情況）
+            # 萃取各張臉的特徵向量（IOD 退化時回傳 None，自動略過）
             ValidBoxes = []
             Vecs       = []
             for BoundingBox, Landmarks3D, _ in Detections:
@@ -228,7 +228,14 @@ class FaceRecognizer:
             Names, Confs = self._Classifier.predict(X)
 
             # 多人模式：RF 結果再經馬氏距離驗證（混合方案）
-            if self._Validators:
+            # 例外：若使用者有明確訓練 "Unknown" 類別（2人以上），
+            # 表示 RF 本身已能直接辨識 Unknown，不需馬氏距離介入。
+            HasExplicitUnknown = (
+                len(self.GetKnownPersons()) > 1 and
+                "Unknown" in self._Samples and
+                len(self._Samples["Unknown"]) > 0
+            )
+            if self._Validators and not HasExplicitUnknown:
                 Names, Confs = self._hybridValidate(Vecs, Names, Confs)
 
             for j, (Top, Right, Bottom, Left) in enumerate(ValidBoxes):

@@ -27,10 +27,10 @@ from face_recognizer import FaceRecognizer
 from random_forest_np import UNKNOWN_THRESHOLD, MAHAL_UNKNOWN_THRESH
 
 # --- 應用程式常數 ---
-LEARN_TARGET_FRAMES       = 30     # 學習模式目標收集 frame 數
+LEARN_TARGET_FRAMES       = 100     # 學習模式目標收集 frame 數
 LEARN_TIMEOUT_SECONDS     = 60     # 學習模式最長等待時間（秒，保底避免卡住）
 UI_REFRESH_MS             = 30     # webcam 畫面更新間隔（毫秒）
-LEARN_TICK_MS             = 500    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
+LEARN_TICK_MS             = 300    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
 DETECT_TICK_MS            = 300    # 辨識時每次推論的間隔
 DETECT_NONE_DETECT_TARGET = 5      # 多數決累積 frame 數
 
