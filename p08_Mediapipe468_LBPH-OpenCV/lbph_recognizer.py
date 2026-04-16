@@ -229,15 +229,19 @@ class LbphRecognizer:
             Img = np.array(Image, dtype=np.uint8)
             LabelIdx, LbphDist = self._Recognizer.predict(Img)
 
-            # 距離超過閾值 → Unknown
-            if LbphDist > self._Threshold:
-                Conf = max(0.0, 1.0 - LbphDist / (2.0 * self._Threshold))
-                print(f"[LbphRecognizer] 距離={LbphDist:.1f}(閾{self._Threshold:.0f}) → Unknown")
-                return -1, Conf
+            # OpenCV 在距離超過 threshold 時回傳 C++ DBL_MAX（約 1.8e308）
+            # 偵測到此值時直接視為完全 Unknown，避免異常數值進入後續計算
+            IsDblMax = LbphDist >= 1.0e300
+            DistStr  = "∞" if IsDblMax else f"{LbphDist:.1f}"
+
+            # 距離超過閾值（含 DBL_MAX）→ Unknown
+            if IsDblMax or LbphDist > self._Threshold:
+                print(f"[LbphRecognizer] 距離={DistStr}(閾{self._Threshold:.0f}) → Unknown")
+                return -1, 0.0
 
             # 距離轉換為 0~1 信心度
             Conf = max(0.0, 1.0 - LbphDist / (2.0 * self._Threshold))
-            print(f"[LbphRecognizer] 距離={LbphDist:.1f}(閾{self._Threshold:.0f}) → Label={LabelIdx} Conf={Conf:.2f}")
+            print(f"[LbphRecognizer] 距離={DistStr}(閾{self._Threshold:.0f}) → Label={LabelIdx} Conf={Conf:.2f}")
             return int(LabelIdx), Conf
 
         except Exception as Error:
