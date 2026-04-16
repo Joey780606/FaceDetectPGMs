@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MediaPipe參考網址: https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker,
 開啟電腦Web cam,輸入人名後,找出468個3-dimensional face landmarks,有x,y,z軸的資料,
-把這些資料交給LBPH (OpenCV)做分類訓練後,再偵測做人臉辨識,查看該人是誰。
+把這些資料交給 LBPH (OpenCV)做分類訓練後,再偵測做人臉辨識,查看該人是誰。
 
 ## Architecture
 
@@ -30,6 +30,10 @@ MediaPipe參考網址: https://ai.google.dev/edge/mediapipe/solutions/vision/fac
 Refmain.py這個檔,在專案完成後,我會刪除掉. (我會刪該檔,您不用幫我刪.)
 
 ## 自己的記錄
+=== 0.實測結果:
+會受到光源,背景影響,導致在A地練習的人員,在B地反而識別不到.
+即使調整了 距離threshold,但仍無法克服.
+這個是 LBPH (OpenCV) 的限制. 目前結束測試.
 === 1.Mediapipe在人臉角度轉動時,好像還可以順利找出468點.所以是否在實作時,可以接受較大幅度的人臉轉動?
 ● 很好的問題。我分幾個層面來回答：
 
