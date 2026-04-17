@@ -185,22 +185,33 @@ class FaceRecognizer:
             if not Detections:
                 return Results
 
-            ValidBoxes = []
-            Vecs       = []
+            ValidBoxes     = []
+            ValidLandmarks = []
+            Vecs           = []
             for BoundingBox, Landmarks3D, _ in Detections:
                 Vec = extractFeatures3D(Landmarks3D)
                 if Vec is not None:
                     ValidBoxes.append(BoundingBox)
+                    ValidLandmarks.append(Landmarks3D)
                     Vecs.append(Vec)
 
             if not Vecs:
                 return Results
 
+            # 計算每張臉的轉角比例，並推導動態閾值
+            BaseThresh  = self._Matcher._Threshold
+            YawRatios   = [self._computeYawRatio(Lm) for Lm in ValidLandmarks]
+            ThreshArray = np.array([
+                max(0.10, BaseThresh - min(0.20, Yr * 0.30))
+                for Yr in YawRatios
+            ], dtype=float)
+
             X = np.array(Vecs, dtype=float)
-            Names, Confs = self._Matcher.predict(X)
+            Names, Confs = self._Matcher.predict(X, Thresholds=ThreshArray)
 
             for j, (Top, Right, Bottom, Left) in enumerate(ValidBoxes):
-                Results.append((Top, Right, Bottom, Left, Names[j], float(Confs[j])))
+                Results.append((Top, Right, Bottom, Left,
+                                Names[j], float(Confs[j]), float(YawRatios[j])))
 
         except Exception as Error:
             print(f"[FaceRecognizer] Predict 失敗：{Error}")
@@ -262,6 +273,33 @@ class FaceRecognizer:
     # ──────────────────────────────────────────────────────────────────────────
     # 私有方法
     # ──────────────────────────────────────────────────────────────────────────
+
+    def _computeYawRatio(self, Landmarks3D: np.ndarray) -> float:
+        """
+        從 468 個 3D landmarks 估算頭部水平轉角比例。
+
+        利用左右顴骨（index 234, 454）與鼻尖（index 1）的 x 軸不對稱度：
+          - 正臉：鼻尖在兩顴骨中間 → 比例 ≈ 0
+          - 側臉：鼻尖偏向一側 → 比例趨近 1
+
+        Returns
+        -------
+        float，範圍 [0, 1]，0 = 正臉，1 = 完全側臉
+        """
+        try:
+            LeftCheekX  = float(Landmarks3D[234, 0])
+            RightCheekX = float(Landmarks3D[454, 0])
+            NoseTipX    = float(Landmarks3D[1,   0])
+            MinX      = min(LeftCheekX, RightCheekX)
+            MaxX      = max(LeftCheekX, RightCheekX)
+            FaceWidth = MaxX - MinX
+            if FaceWidth < 1e-5:
+                return 0.0
+            DistA = NoseTipX - MinX   # 鼻尖到近側顴骨
+            DistB = MaxX - NoseTipX   # 鼻尖到遠側顴骨
+            return abs(DistA - DistB) / FaceWidth
+        except Exception:
+            return 0.0
 
     def _trainMatcher(self) -> None:
         """

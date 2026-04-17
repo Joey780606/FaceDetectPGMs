@@ -405,7 +405,7 @@ class MainApp(customtkinter.CTk):
         已知人物用綠框，Unknown 用紅框。
         """
         DrawFrame = Frame.copy()
-        for Top, Right, Bottom, Left, Name, Confidence in Detections:
+        for Top, Right, Bottom, Left, Name, Confidence, *_ in Detections:
             Color = (0, 255, 0) if Name != "Unknown" else (0, 0, 255)
             cv2.rectangle(DrawFrame, (Left, Top), (Right, Bottom), Color, 2)
             # 姓名標籤背景
@@ -455,6 +455,7 @@ class MainApp(customtkinter.CTk):
             self._LastDetections    = []
             self._BtnDetectNone.configure(text="Detect", state="normal")
             self._LblDetectName.configure(text="")
+            self._LblBufferInfo.configure(text="")
             return
 
         # 確認有已登錄的人臉資料
@@ -512,7 +513,11 @@ class MainApp(customtkinter.CTk):
             self._LastDetections = Results
             # 取置信度最高的人臉作為本次結果
             BestResult = max(Results, key=lambda R: R[5])
-            Name = BestResult[4]
+            Name     = BestResult[4]
+            YawRatio = BestResult[6]
+
+            # 更新頭部轉角顯示
+            self._LblBufferInfo.configure(text=self._yawDesc(YawRatio))
 
             # 加入滑動窗口
             self._DetectNoneDtNames.append(Name)
@@ -531,8 +536,9 @@ class MainApp(customtkinter.CTk):
                     text=f"偵測中.... ({len(self._DetectNoneDtNames)}/{DETECT_NONE_DETECT_TARGET})"
                 )
         else:
-            # 未偵測到人臉，清除框
+            # 未偵測到人臉，清除框與轉角顯示
             self._LastDetections = []
+            self._LblBufferInfo.configure(text="")
 
     # --------------------------------------------------------------------------
     # 學習功能
@@ -716,6 +722,24 @@ class MainApp(customtkinter.CTk):
             )
             # 更新關鍵點快取，供 _UpdateWebcamView 疊加顯示
             self._LastLearnKeyPoints = KeyPoints
+
+    # --------------------------------------------------------------------------
+    # 工具方法：頭部轉角描述
+    # --------------------------------------------------------------------------
+    def _yawDesc(self, YawRatio: float) -> str:
+        """將 YawRatio（0~1）轉換為可讀的頭部轉角描述字串。"""
+        Deg = int(YawRatio * 60)
+        if YawRatio < 0.10:
+            Desc = "正臉"
+        elif YawRatio < 0.30:
+            Desc = "微轉"
+        elif YawRatio < 0.55:
+            Desc = "中等轉"
+        elif YawRatio < 0.80:
+            Desc = "明顯轉"
+        else:
+            Desc = "側臉"
+        return f"頭部轉角：約 {Deg}°（{Desc}）"
 
     # --------------------------------------------------------------------------
     # 閾值調整 Slider 回調

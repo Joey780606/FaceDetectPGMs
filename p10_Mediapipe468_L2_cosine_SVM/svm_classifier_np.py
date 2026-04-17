@@ -143,13 +143,17 @@ class SvmClassifier:
             print(f"[SvmClassifier] fit 失敗：{Error}")
             self._IsTrained = False
 
-    def predict(self, X: np.ndarray) -> tuple:
+    def predict(self, X: np.ndarray,
+                Thresholds: np.ndarray = None) -> tuple:
         """
         預測人名與信心度。
 
         Parameters
         ----------
-        X : np.ndarray, shape (n_samples, n_features)
+        X          : np.ndarray, shape (n_samples, n_features)
+        Thresholds : np.ndarray, shape (n_samples,)，可選。
+                     每個樣本的有效閾值（動態轉角補償後）；
+                     若為 None，全部使用 self._Threshold。
 
         Returns
         -------
@@ -158,7 +162,9 @@ class SvmClassifier:
         Names = []
         Confs = []
 
-        for x in X:
+        for i, x in enumerate(X):
+            Thresh = float(Thresholds[i]) if Thresholds is not None else self._Threshold
+
             # ── 前處理（與訓練相同）──────────────────────────────────────────
             xz   = (x - self._GlobalMean) / self._GlobalStd
             Norm = np.linalg.norm(xz)
@@ -170,13 +176,13 @@ class SvmClassifier:
 
             if self._SinglePersonMode:
                 # ── 單人模式：與所有訓練向量的最大 Cosine 相似度 ─────────────
-                Sims    = self._W @ xn      # cosine 相似度，shape (N_samples,)
-                MaxSim  = float(np.max(Sims))
-                Conf    = float(1.0 / (1.0 + np.exp(-MaxSim)))
-                Name    = self._ClassNames[0] if Conf >= self._Threshold else "Unknown"
+                Sims   = self._W @ xn      # cosine 相似度，shape (N_samples,)
+                MaxSim = float(np.max(Sims))
+                Conf   = float(1.0 / (1.0 + np.exp(-MaxSim)))
+                Name   = self._ClassNames[0] if Conf >= Thresh else "Unknown"
 
                 print(f"[SVM-1P] 最大cosine={MaxSim:.3f}"
-                      f"  sigmoid={Conf:.3f}(閾{self._Threshold:.2f})"
+                      f"  sigmoid={Conf:.3f}(閾{Thresh:.2f})"
                       f"  → {Name}")
             else:
                 # ── 多人模式：OvR 線性分類器 ──────────────────────────────────
@@ -184,13 +190,13 @@ class SvmClassifier:
                 BestIdx = int(np.argmax(Scores))
                 BestRaw = float(Scores[BestIdx])
                 Conf    = float(1.0 / (1.0 + np.exp(-BestRaw)))
-                Name    = self._ClassNames[BestIdx] if Conf >= self._Threshold else "Unknown"
+                Name    = self._ClassNames[BestIdx] if Conf >= Thresh else "Unknown"
 
                 ScoreStr = "  ".join(
                     f"{n}:{s:.2f}" for n, s in zip(self._ClassNames, Scores)
                 )
                 print(f"[SVM] Scores=[{ScoreStr}]"
-                      f"  獲勝={self._ClassNames[BestIdx]} sigmoid={Conf:.3f}(閾{self._Threshold:.2f})"
+                      f"  獲勝={self._ClassNames[BestIdx]} sigmoid={Conf:.3f}(閾{Thresh:.2f})"
                       f"  → {Name}")
 
             Names.append(Name)
