@@ -75,11 +75,14 @@ class CosineMatcher:
             self._IsTrained = False
             return
 
-        RawMatrix = np.array(AllVecs, dtype=float)   # shape (N, D)
+        RawMatrix  = np.array(AllVecs,   dtype=float)   # shape (N, D)
+        LabelArray = np.array(AllLabels)                # shape (N,)
 
-        # ── 計算全局 Z-Score 統計量 ──────────────────────────────────────────
-        self._GlobalMean = np.mean(RawMatrix, axis=0)                 # shape (D,)
-        self._GlobalStd  = np.std(RawMatrix,  axis=0)                 # shape (D,)
+        # ── 計算全局 Z-Score 統計量（排除 Unknown，避免陌生人樣本污染標準化基準）──
+        KnownMask = LabelArray != "Unknown"
+        KnownMatrix = RawMatrix[KnownMask] if KnownMask.any() else RawMatrix
+        self._GlobalMean = np.mean(KnownMatrix, axis=0)               # shape (D,)
+        self._GlobalStd  = np.std(KnownMatrix,  axis=0)               # shape (D,)
         # 標準差為 0 的維度（所有人都一樣）沒有辨別力，設為 1 避免除以零
         self._GlobalStd[self._GlobalStd < 1e-10] = 1.0
 
