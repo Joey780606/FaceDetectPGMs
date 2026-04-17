@@ -39,7 +39,11 @@ Webcam → MediaPipe FaceLandmarker（468 個 3D 點）
    - 單人（1 人）：最大 Cosine 相似度比對
    - 不依賴 sklearn / scipy（避免 Windows Application Control 封鎖 DLL）
 4. **Unknown 偵測**：不需預先收集陌生人樣本，SVM 分數低於信心度閾值即判為 Unknown。
-5. **商用授權**：所有依賴（MediaPipe Apache 2.0、OpenCV Apache 2.0、NumPy BSD、CustomTkinter CC0、Pillow MIT）均為寬鬆授權，可安全商用。
+5. **動態閾值補償（頭部姿態）**：推論時估算水平（Yaw）與垂直（Pitch）轉角比例，
+   以兩軸 2-norm 合成後動態降低信心度閾值（最多補償 0.20），避免側臉或抬/低頭被誤判為 Unknown。
+   - Yaw：左右顴骨（landmark 234, 454）與鼻尖（landmark 1）的 x 軸不對稱度
+   - Pitch：眼睛中心 y 位置相對額頭（landmark 10）到下巴（landmark 152）的偏移量
+6. **商用授權**：所有依賴（MediaPipe Apache 2.0、OpenCV Apache 2.0、NumPy BSD、CustomTkinter CC0、Pillow MIT）均為寬鬆授權，可安全商用。
 
 ## Key Files
 
@@ -58,3 +62,5 @@ Webcam → MediaPipe FaceLandmarker（468 個 3D 點）
 
 輸入人名，按 Learning 進行學習（收集 100 幀），按 Detect 推論來者是誰。
 信心度閾值 Slider 可即時調整嚴格程度（預設 0.60）。
+Detect 期間 UI 會即時顯示估算的頭部姿態（左右轉角 + 上下傾角），格式如：
+`左右：約 18°（微轉）  上下：約 8°（水平）`

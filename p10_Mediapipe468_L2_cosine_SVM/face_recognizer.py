@@ -198,12 +198,14 @@ class FaceRecognizer:
             if not Vecs:
                 return Results
 
-            # 計算每張臉的轉角比例，並推導動態閾值
-            BaseThresh  = self._Matcher._Threshold
-            YawRatios   = [self._computeYawRatio(Lm) for Lm in ValidLandmarks]
-            ThreshArray = np.array([
-                max(0.10, BaseThresh - min(0.20, Yr * 0.30))
-                for Yr in YawRatios
+            # 計算每張臉的水平（Yaw）與垂直（Pitch）轉角比例
+            BaseThresh   = self._Matcher._Threshold
+            YawRatios    = [self._computeYawRatio(Lm)   for Lm in ValidLandmarks]
+            PitchRatios  = [self._computePitchRatio(Lm) for Lm in ValidLandmarks]
+            # 兩軸向量合成（2-norm）後決定閾值補償，最多補償 0.20
+            ThreshArray  = np.array([
+                max(0.10, BaseThresh - min(0.20, (Y**2 + P**2)**0.5 * 0.30))
+                for Y, P in zip(YawRatios, PitchRatios)
             ], dtype=float)
 
             X = np.array(Vecs, dtype=float)
@@ -211,7 +213,8 @@ class FaceRecognizer:
 
             for j, (Top, Right, Bottom, Left) in enumerate(ValidBoxes):
                 Results.append((Top, Right, Bottom, Left,
-                                Names[j], float(Confs[j]), float(YawRatios[j])))
+                                Names[j], float(Confs[j]),
+                                float(YawRatios[j]), float(PitchRatios[j])))
 
         except Exception as Error:
             print(f"[FaceRecognizer] Predict 失敗：{Error}")
@@ -273,6 +276,30 @@ class FaceRecognizer:
     # ──────────────────────────────────────────────────────────────────────────
     # 私有方法
     # ──────────────────────────────────────────────────────────────────────────
+
+    def _computePitchRatio(self, Landmarks3D: np.ndarray) -> float:
+        """
+        從 468 個 3D landmarks 估算頭部垂直傾角比例。
+
+        利用眼睛中心 y 座標在額頭（index 10）到下巴（index 152）之間的相對位置：
+          - 正臉：眼睛約在臉部高度的 42% 處 → 比例 ≈ 0
+          - 抬頭/低頭：眼睛相對位置偏移 → 比例趨近 1
+
+        Returns
+        -------
+        float，範圍 [0, 1]，0 = 正臉，1 = 極端傾角
+        """
+        try:
+            EyeY      = float(np.mean(Landmarks3D[[33, 133, 159, 145, 263, 362, 386, 374], 1]))
+            ForeheadY = float(Landmarks3D[10,  1])
+            ChinY     = float(Landmarks3D[152, 1])
+            FaceHeight = ChinY - ForeheadY
+            if abs(FaceHeight) < 1e-5:
+                return 0.0
+            EyeRatio = (EyeY - ForeheadY) / FaceHeight
+            return min(1.0, abs(EyeRatio - 0.42) / 0.15)
+        except Exception:
+            return 0.0
 
     def _computeYawRatio(self, Landmarks3D: np.ndarray) -> float:
         """

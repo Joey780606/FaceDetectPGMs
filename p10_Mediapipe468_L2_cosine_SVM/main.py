@@ -513,11 +513,12 @@ class MainApp(customtkinter.CTk):
             self._LastDetections = Results
             # 取置信度最高的人臉作為本次結果
             BestResult = max(Results, key=lambda R: R[5])
-            Name     = BestResult[4]
-            YawRatio = BestResult[6]
+            Name       = BestResult[4]
+            YawRatio   = BestResult[6]
+            PitchRatio = BestResult[7]
 
             # 更新頭部轉角顯示
-            self._LblBufferInfo.configure(text=self._yawDesc(YawRatio))
+            self._LblBufferInfo.configure(text=self._headPoseDesc(YawRatio, PitchRatio))
 
             # 加入滑動窗口
             self._DetectNoneDtNames.append(Name)
@@ -726,20 +727,32 @@ class MainApp(customtkinter.CTk):
     # --------------------------------------------------------------------------
     # 工具方法：頭部轉角描述
     # --------------------------------------------------------------------------
-    def _yawDesc(self, YawRatio: float) -> str:
-        """將 YawRatio（0~1）轉換為可讀的頭部轉角描述字串。"""
-        Deg = int(YawRatio * 60)
+    def _headPoseDesc(self, YawRatio: float, PitchRatio: float) -> str:
+        """將 YawRatio 與 PitchRatio（各 0~1）轉換為可讀的頭部姿態描述字串。"""
+        YawDeg   = int(YawRatio   * 60)
+        PitchDeg = int(PitchRatio * 30)
+
         if YawRatio < 0.10:
-            Desc = "正臉"
+            YawDesc = "正臉"
         elif YawRatio < 0.30:
-            Desc = "微轉"
+            YawDesc = "微轉"
         elif YawRatio < 0.55:
-            Desc = "中等轉"
+            YawDesc = "中等轉"
         elif YawRatio < 0.80:
-            Desc = "明顯轉"
+            YawDesc = "明顯轉"
         else:
-            Desc = "側臉"
-        return f"頭部轉角：約 {Deg}°（{Desc}）"
+            YawDesc = "側臉"
+
+        if PitchRatio < 0.15:
+            PitchDesc = "水平"
+        elif PitchRatio < 0.45:
+            PitchDesc = "微仰/低"
+        elif PitchRatio < 0.75:
+            PitchDesc = "中等仰/低"
+        else:
+            PitchDesc = "大幅仰/低"
+
+        return f"左右：約 {YawDeg}°（{YawDesc}）  上下：約 {PitchDeg}°（{PitchDesc}）"
 
     # --------------------------------------------------------------------------
     # 閾值調整 Slider 回調
