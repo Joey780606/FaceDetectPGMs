@@ -28,8 +28,10 @@ from face_pose_classifier import POSE_NAMES, POSE_NAMES_EN
 from svm_classifier_np import SVM_UNKNOWN_THRESH
 
 # ── 應用程式常數 ──────────────────────────────────────────────────────────────
-LEARN_TARGET_FRAMES   = 100    # 學習模式目標收集 frame 數（分5類需較多樣本）
-LEARN_TIMEOUT_SECONDS = 120    # 學習模式最長等待時間（秒）
+#LEARN_TARGET_FRAMES   = 100    # 學習模式目標收集 frame 數（分5類需較多樣本）
+#LEARN_TIMEOUT_SECONDS = 120    # 學習模式最長等待時間（秒）
+LEARN_TARGET_FRAMES   = 30    # 學習模式目標收集 frame 數（分5類需較多樣本）
+LEARN_TIMEOUT_SECONDS = 40    # 學習模式最長等待時間（秒）
 UI_REFRESH_MS         = 30     # webcam 畫面更新間隔（毫秒）
 LEARN_TICK_MS         = 500    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
 DETECT_TICK_MS        = 300    # 偵測時每次推論的間隔
@@ -312,12 +314,18 @@ class MainApp(customtkinter.CTk):
     # 工具方法
     # ──────────────────────────────────────────────────────────────────────────
     def _UpdateSummary(self) -> None:
-        """將目前學習資料摘要寫入 Log。"""
+        """將目前學習資料摘要寫入 Log，含各姿態 SVM 張數。"""
         Counts = self._Recognizer.GetSampleCounts()
         if not Counts:
             self._AppendLog("學習資料：（尚無資料）")
             return
-        Parts = [f"{Name}: {N} 張" for Name, N in Counts.items()]
+        Parts = []
+        for Name, Total in Counts.items():
+            PoseCounts = self._Recognizer.GetPersonPoseCounts(Name)
+            PoseStr = " ".join(
+                f"{POSE_NAMES[c]}:{PoseCounts.get(c, 0)}" for c in range(5)
+            )
+            Parts.append(f"{Name}: {Total}張 ({PoseStr})")
         self._AppendLog("學習資料：" + "　|　".join(Parts))
 
     def _AppendLog(self, Msg: str) -> None:

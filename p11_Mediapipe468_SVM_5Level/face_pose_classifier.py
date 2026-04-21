@@ -36,8 +36,9 @@ POSE_NAMES    = ['置中', '左上', '右上', '左下', '右下']
 POSE_NAMES_EN = ['Ctr',  'LU',  'RU',   'LD',   'RD']   # OpenCV putText 用
 
 # ── 判斷閾值 ──────────────────────────────────────────────────────────────────
-YAW_THRESH   = 0.10   # 水平轉角絕對值超過此值才算偏左/偏右
-PITCH_THRESH = 0.05   # Z 軸縱傾絕對值超過此值才算偏上/偏下
+# 正臉範圍刻意設寬：只有頭部明顯轉動才歸入四個側臉象限
+YAW_THRESH   = 0.30   # 水平轉角絕對值超過此值才算偏左/偏右
+PITCH_THRESH = 0.15   # Z 軸縱傾絕對值超過此值才算偏上/偏下
 
 
 def _computeSignedYaw(Landmarks3D: np.ndarray) -> float:

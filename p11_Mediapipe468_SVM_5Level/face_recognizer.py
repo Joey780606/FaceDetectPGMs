@@ -27,6 +27,11 @@ from svm_classifier_np import SvmClassifier, SVM_UNKNOWN_THRESH
 DEFAULT_MODEL_PATH = "face_model.npz"
 N_POSES = 5
 
+# ── 推論策略 ──────────────────────────────────────────────────────────────────
+# 0 = 姿態路由：先用姿態分類決定使用哪個 SVM，再 predict（精準但依賴姿態判斷準確）
+# 1 = 全比五個：五個 SVM 全部 predict，取信心度最高者（穩健但正臉 SVM 可能主導）
+DETECT_STRATEGY = 0
+
 
 class FaceRecognizer:
     """
@@ -190,13 +195,13 @@ class FaceRecognizer:
         """
         從 BGR 影像偵測並辨識人臉。
 
+        推論策略由模組層級 DETECT_STRATEGY 決定：
+          0 = 姿態路由：依當前姿態選對應 SVM（若無則備援正臉）
+          1 = 全比五個：五個 SVM 全跑，取信心度最高者
+
         Returns
         -------
-        list of (Top, Right, Bottom, Left, Name, Confidence, PoseCat)
-          Top/Right/Bottom/Left : 人臉邊界框（像素）
-          Name       : 辨識結果或 "Unknown"
-          Confidence : sigmoid 信心度（0.0 ~ 1.0）
-          PoseCat    : 本幀姿態類別（0~4）
+        list of (Top, Right, Bottom, Left, Name, Confidence, PoseCat, Yaw, Pitch)
         """
         Results = []
         try:
@@ -212,19 +217,48 @@ class FaceRecognizer:
                 if Vec is None:
                     continue
 
-                PoseCat, Yaw, Pitch = classifyPoseWithValues(Landmarks3D)
+                CurrentPose, Yaw, Pitch = classifyPoseWithValues(Landmarks3D)
+                XArr = np.array([Vec])
 
-                # 選對應姿態的分類器；若無則備援使用正臉分類器
-                Clf = self._Classifiers[PoseCat]
-                if Clf is None or not Clf.IsTrained:
-                    Clf = self._Classifiers[POSE_FRONTAL]
-                if Clf is None or not Clf.IsTrained:
-                    continue
+                if DETECT_STRATEGY == 0:
+                    # ── 策略 0：姿態路由，單一 SVM ────────────────────────────
+                    Clf = self._Classifiers[CurrentPose]
+                    if Clf is None or not Clf.IsTrained:
+                        Clf = self._Classifiers[POSE_FRONTAL]
+                    if Clf is None or not Clf.IsTrained:
+                        continue
+                    Names, Confs = Clf.predict(XArr, Thresholds=None)
+                    BestName = Names[0]
+                    BestConf = float(Confs[0])
+                    BestPose = CurrentPose
+                    print(f"[Predict-S0] 姿態={POSE_NAMES[CurrentPose]} → {BestName}({BestConf:.2f})")
 
-                Names, Confs = Clf.predict(np.array([Vec]), Thresholds=None)
+                else:
+                    # ── 策略 1：五個全比，取最高信心度 ───────────────────────
+                    BestName = "Unknown"
+                    BestConf = -1.0
+                    BestPose = POSE_FRONTAL
+                    LogParts = []
+
+                    for PoseCat in range(N_POSES):
+                        Clf = self._Classifiers[PoseCat]
+                        if Clf is None or not Clf.IsTrained:
+                            LogParts.append(f"{POSE_NAMES[PoseCat]}:N/A")
+                            continue
+                        Names, Confs = Clf.predict(XArr, Thresholds=None)
+                        Name = Names[0]
+                        Conf = float(Confs[0])
+                        LogParts.append(f"{POSE_NAMES[PoseCat]}:{Name}({Conf:.2f})")
+                        if Conf > BestConf:
+                            BestConf = Conf
+                            BestName = Name
+                            BestPose = PoseCat
+
+                    print(f"[Predict-S1] {' | '.join(LogParts)} → {POSE_NAMES[BestPose]}:{BestName}({BestConf:.2f})")
+
                 Top, Right, Bottom, Left = BoundingBox
                 Results.append((Top, Right, Bottom, Left,
-                                Names[0], float(Confs[0]), PoseCat, Yaw, Pitch))
+                                BestName, BestConf, BestPose, Yaw, Pitch))
 
         except Exception as Error:
             print(f"[FaceRecognizer] Predict 失敗：{Error}")
@@ -313,7 +347,8 @@ class FaceRecognizer:
                         PoseSamples[Name] = Vecs
 
                 if PoseSamples:
-                    Clf = SvmClassifier(Threshold=self._Threshold)
+                    Clf = SvmClassifier(Threshold=self._Threshold,
+                                        Label=POSE_NAMES[PoseCat])
                     Clf.fit(PoseSamples)
                     self._Classifiers[PoseCat] = Clf
                     if Clf.IsTrained:

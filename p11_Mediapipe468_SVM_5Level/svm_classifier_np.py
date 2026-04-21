@@ -51,13 +51,15 @@ class SvmClassifier:
                  LearningRate: float = SGD_LEARNING_RATE,
                  LrDecay: float = SGD_LR_DECAY,
                  LambdaReg: float = SGD_LAMBDA_REG,
-                 BatchSize: int = SGD_BATCH_SIZE):
+                 BatchSize: int = SGD_BATCH_SIZE,
+                 Label: str = ""):
         self._Threshold         = Threshold
         self._NEpochs           = NEpochs
         self._LearningRate      = LearningRate
         self._LrDecay           = LrDecay
         self._LambdaReg         = LambdaReg
         self._BatchSize         = BatchSize
+        self._Label             = Label       # 姿態識別標籤，用於 print 識別
 
         self._GlobalMean        = None    # shape (D,)，Z-Score 均值
         self._GlobalStd         = None    # shape (D,)，Z-Score 標準差
@@ -181,7 +183,8 @@ class SvmClassifier:
                 Conf   = float(1.0 / (1.0 + np.exp(-MaxSim)))
                 Name   = self._ClassNames[0] if Conf >= Thresh else "Unknown"
 
-                print(f"[SVM-1P] 最大cosine={MaxSim:.3f}"
+                Tag = f"[SVM-1P/{self._Label}]" if self._Label else "[SVM-1P]"
+                print(f"{Tag} 最大cosine={MaxSim:.3f}"
                       f"  sigmoid={Conf:.3f}(閾{Thresh:.2f})"
                       f"  → {Name}")
             else:
@@ -195,7 +198,8 @@ class SvmClassifier:
                 ScoreStr = "  ".join(
                     f"{n}:{s:.2f}" for n, s in zip(self._ClassNames, Scores)
                 )
-                print(f"[SVM] Scores=[{ScoreStr}]"
+                Tag = f"[SVM/{self._Label}]" if self._Label else "[SVM]"
+                print(f"{Tag} Scores=[{ScoreStr}]"
                       f"  獲勝={self._ClassNames[BestIdx]} sigmoid={Conf:.3f}(閾{Thresh:.2f})"
                       f"  → {Name}")
 
