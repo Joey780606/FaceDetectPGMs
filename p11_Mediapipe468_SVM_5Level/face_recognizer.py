@@ -28,9 +28,13 @@ DEFAULT_MODEL_PATH = "face_model.npz"
 N_POSES = 5
 
 # ── 推論策略 ──────────────────────────────────────────────────────────────────
-# 0 = 姿態路由：先用姿態分類決定使用哪個 SVM，再 predict（精準但依賴姿態判斷準確）
-# 1 = 全比五個：五個 SVM 全部 predict，取信心度最高者（穩健但正臉 SVM 可能主導）
+# 0 = 姿態路由：依當前姿態選對應 SVM；信心度過低時備援全角度 SVM
+# 1 = 全比五個：五個 SVM 全跑，取信心度最高者
 DETECT_STRATEGY = 0
+
+# 策略 0 的備援閾值：側臉 SVM 信心度低於此值時，改用全角度 SVM（index 0）補判
+# 全角度 SVM（index 0）以所有姿態樣本混合訓練，對各角度均有一定覆蓋
+FALLBACK_CONF_THRESH = 0.59
 
 
 class FaceRecognizer:
@@ -221,7 +225,7 @@ class FaceRecognizer:
                 XArr = np.array([Vec])
 
                 if DETECT_STRATEGY == 0:
-                    # ── 策略 0：姿態路由，單一 SVM ────────────────────────────
+                    # ── 策略 0：姿態路由 + 低信心度備援全角度 SVM ────────────
                     Clf = self._Classifiers[CurrentPose]
                     if Clf is None or not Clf.IsTrained:
                         Clf = self._Classifiers[POSE_FRONTAL]
@@ -231,7 +235,21 @@ class FaceRecognizer:
                     BestName = Names[0]
                     BestConf = float(Confs[0])
                     BestPose = CurrentPose
-                    print(f"[Predict-S0] 姿態={POSE_NAMES[CurrentPose]} → {BestName}({BestConf:.2f})")
+
+                    # 側臉信心度不足 → 備援全角度 SVM
+                    if CurrentPose != POSE_FRONTAL and BestConf < FALLBACK_CONF_THRESH:
+                        ClfGlobal = self._Classifiers[POSE_FRONTAL]
+                        if ClfGlobal is not None and ClfGlobal.IsTrained:
+                            GNames, GConfs = ClfGlobal.predict(XArr, Thresholds=None)
+                            GConf = float(GConfs[0])
+                            print(f"[Predict-S0] 姿態={POSE_NAMES[CurrentPose]} "
+                                  f"側臉低分({BestConf:.2f}) → 備援全角度({GConf:.2f})")
+                            if GConf > BestConf:
+                                BestName = GNames[0]
+                                BestConf = GConf
+                                BestPose = POSE_FRONTAL
+                    else:
+                        print(f"[Predict-S0] 姿態={POSE_NAMES[CurrentPose]} → {BestName}({BestConf:.2f})")
 
                 else:
                     # ── 策略 1：五個全比，取最高信心度 ───────────────────────
@@ -332,29 +350,39 @@ class FaceRecognizer:
 
     def _trainMatcher(self) -> None:
         """
-        依當前 _Samples，對五個姿態類別各別訓練一個 SvmClassifier。
-        若某姿態無任何人的樣本，該分類器設為 None。
+        訓練五個 SvmClassifier：
+          index 0（全角度）：所有姿態樣本混合，作為備援分類器
+          index 1~4       ：各姿態專屬樣本，精準辨識大幅轉頭
         """
         try:
             AnyTrained = False
 
             for PoseCat in range(N_POSES):
-                # 收集所有人在此姿態的樣本
-                PoseSamples = {}
-                for Name, PoseDict in self._Samples.items():
-                    Vecs = PoseDict.get(PoseCat, [])
-                    if Vecs:
-                        PoseSamples[Name] = Vecs
+                if PoseCat == POSE_FRONTAL:
+                    # 全角度 SVM：收集所有人、所有姿態的樣本合併
+                    PoseSamples = {}
+                    for Name, PoseDict in self._Samples.items():
+                        AllVecs = [v for Vecs in PoseDict.values() for v in Vecs]
+                        if AllVecs:
+                            PoseSamples[Name] = AllVecs
+                    Label = "全角度"
+                else:
+                    # 姿態專屬 SVM：只取該姿態的樣本
+                    PoseSamples = {}
+                    for Name, PoseDict in self._Samples.items():
+                        Vecs = PoseDict.get(PoseCat, [])
+                        if Vecs:
+                            PoseSamples[Name] = Vecs
+                    Label = POSE_NAMES[PoseCat]
 
                 if PoseSamples:
-                    Clf = SvmClassifier(Threshold=self._Threshold,
-                                        Label=POSE_NAMES[PoseCat])
+                    Clf = SvmClassifier(Threshold=self._Threshold, Label=Label)
                     Clf.fit(PoseSamples)
                     self._Classifiers[PoseCat] = Clf
                     if Clf.IsTrained:
                         AnyTrained = True
                         TotalVecs  = sum(len(v) for v in PoseSamples.values())
-                        print(f"[FaceRecognizer] 姿態{PoseCat}({POSE_NAMES[PoseCat]}) "
+                        print(f"[FaceRecognizer] SVM[{PoseCat}]({Label}) "
                               f"訓練完成：{len(PoseSamples)}人 / {TotalVecs}筆")
                 else:
                     self._Classifiers[PoseCat] = None
