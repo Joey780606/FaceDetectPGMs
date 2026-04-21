@@ -543,6 +543,7 @@ class MainApp(customtkinter.CTk):
 
         Ok = self._Recognizer.RemovePerson(PersonName)
         if Ok:
+            self._Recognizer.SaveModel()
             MsgBox.showinfo("移除完成", f"已成功移除 [{PersonName}] 的所有訓練資料。")
             self._UpdateSummary()
         else:
