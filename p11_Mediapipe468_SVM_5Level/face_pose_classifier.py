@@ -112,21 +112,21 @@ def classifyPose(Landmarks3D: np.ndarray) -> int:
 
         # 正臉範圍：兩軸均未超過閾值
         if abs(Yaw) < YAW_THRESH and abs(Pitch) < PITCH_THRESH:
-            print(f"[臉正面] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
+            # print(f"[臉正面] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
             return POSE_FRONTAL
 
         # 非正臉：依符號落入四象限
         if   Yaw <= 0 and Pitch <= 0:
-            print(f"[臉左上] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
+            # print(f"[臉左上] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
             return POSE_LEFT_UP
         elif Yaw >  0 and Pitch <= 0:
-            print(f"[臉右上] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
+            # print(f"[臉右上] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
             return POSE_RIGHT_UP
         elif Yaw <= 0 and Pitch >  0:
-            print(f"[臉左下] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
+            # print(f"[臉左下] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
             return POSE_LEFT_DOWN
         else:
-            print(f"[臉右下] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
+            # print(f"[臉右下] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
             return POSE_RIGHT_DOWN
 
     except Exception:
@@ -146,19 +146,19 @@ def classifyPoseWithValues(Landmarks3D: np.ndarray) -> tuple:
         Pitch = _computeSignedPitch(Landmarks3D)
 
         if abs(Yaw) < YAW_THRESH and abs(Pitch) < PITCH_THRESH:
-            print(f"[臉正面] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")            
+            # print(f"[臉正面] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")            
             Cat = POSE_FRONTAL
         elif Yaw <= 0 and Pitch <= 0:
-            print(f"[臉左上] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")            
+            # print(f"[臉左上] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")            
             Cat = POSE_LEFT_UP
         elif Yaw >  0 and Pitch <= 0:
-            print(f"[臉右上] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")            
+            # print(f"[臉右上] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")            
             Cat = POSE_RIGHT_UP
         elif Yaw <= 0 and Pitch >  0:
-            print(f"[臉左下] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")
+            # print(f"[臉左下] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")
             Cat = POSE_LEFT_DOWN
         else:
-            print(f"[臉右下] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")
+            # print(f"[臉右下] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")
             Cat = POSE_RIGHT_DOWN
 
         return Cat, Yaw, Pitch

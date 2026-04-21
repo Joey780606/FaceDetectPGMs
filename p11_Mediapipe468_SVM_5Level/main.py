@@ -28,10 +28,8 @@ from face_pose_classifier import POSE_NAMES, POSE_NAMES_EN
 from svm_classifier_np import SVM_UNKNOWN_THRESH
 
 # ── 應用程式常數 ──────────────────────────────────────────────────────────────
-#LEARN_TARGET_FRAMES   = 100    # 學習模式目標收集 frame 數（分5類需較多樣本）
-#LEARN_TIMEOUT_SECONDS = 120    # 學習模式最長等待時間（秒）
-LEARN_TARGET_FRAMES   = 30    # 學習模式目標收集 frame 數（分5類需較多樣本）
-LEARN_TIMEOUT_SECONDS = 30    # 學習模式最長等待時間（秒）
+LEARN_TARGET_FRAMES   = 100    # 學習模式目標收集 frame 數（分5類需較多樣本）
+LEARN_TIMEOUT_SECONDS = 120    # 學習模式最長等待時間（秒）
 UI_REFRESH_MS         = 30     # webcam 畫面更新間隔（毫秒）
 LEARN_TICK_MS         = 500    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
 DETECT_TICK_MS        = 300    # 偵測時每次推論的間隔
