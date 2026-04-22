@@ -202,8 +202,17 @@ class FaceRecognizer:
                     continue
 
                 PoseCat, Yaw, Pitch = classifyPoseWithValues(Landmarks3D)
+                # 側臉：sigmoid 閾值 -0.1；margin 閾值設 0.0（停用分差檢查）
+                AdjThresh       = (self._Threshold - 0.1
+                                   if PoseCat != POSE_FRONTAL
+                                   else self._Threshold)
+                AdjMarginThresh = (0.0
+                                   if PoseCat != POSE_FRONTAL
+                                   else self._MarginThresh)
                 Names, Confs = self._Classifier.predict(
-                    np.array([Vec]), Thresholds=None
+                    np.array([Vec]),
+                    Thresholds=np.array([AdjThresh]),
+                    MarginThresholds=np.array([AdjMarginThresh])
                 )
                 Name = Names[0]
                 Conf = float(Confs[0])

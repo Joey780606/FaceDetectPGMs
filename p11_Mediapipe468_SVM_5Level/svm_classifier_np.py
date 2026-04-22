@@ -37,7 +37,12 @@ SVM_UNKNOWN_THRESH = 0.60
 SVM_MARGIN_THRESH = 0.50
 
 # 餘弦驗證閾值預設值（query 與預測人的平均向量餘弦相似度，低於此值 → Unknown）
-COSINE_VERIFY_THRESH = 0.5
+COSINE_VERIFY_THRESH = -1.0   # 預設關閉（-1.0 表示永不觸發）
+
+# KNN 驗證參數
+KNN_K = 5              # 比對最近 K 個訓練樣本
+#KNN_THRESH_FACTOR = 2.0  # 閾值 = within-class KNN 平均距離 + N × 標準差
+KNN_THRESH_FACTOR = 1.35
 
 # SGD 超參數（多人模式）
 SGD_N_EPOCHS      = 200
@@ -80,6 +85,8 @@ class SvmClassifier:
         self._b                 = None    # shape (n_classes,) 或 (N_samples,)（單人）
         self._ClassNames        = []      # 人名列表，索引對應整數標籤
         self._ClassMeans        = {}      # {人名: 正規化平均向量 shape (D,)}
+        self._ClassVecs         = {}      # {人名: 正規化訓練向量矩陣 shape (N, D)}
+        self._ClassKnnThresh    = {}      # {人名: KNN 距離閾值（訓練時自動校準）}
         self._SinglePersonMode  = False   # True = 使用最大 Cosine 模式
         self._IsTrained         = False
 
@@ -123,8 +130,10 @@ class SvmClassifier:
             Xnorm = Zmat / Norms    # shape (N, D)
 
             # ── 計算各人正規化平均向量（供餘弦驗證使用）─────────────────────
-            self._ClassNames = list(dict.fromkeys(AllLabels))
-            self._ClassMeans = {}
+            self._ClassNames     = list(dict.fromkeys(AllLabels))
+            self._ClassMeans     = {}
+            self._ClassVecs      = {}
+            self._ClassKnnThresh = {}
             AllLabelsArr = np.array(AllLabels)
             for Name in self._ClassNames:
                 Mask      = AllLabelsArr == Name
@@ -132,6 +141,15 @@ class SvmClassifier:
                 Mean      = np.mean(ClassVecs, axis=0)    # shape (D,)
                 MeanNorm  = np.linalg.norm(Mean)
                 self._ClassMeans[Name] = Mean / MeanNorm if MeanNorm > 1e-8 else Mean
+
+                # 儲存訓練向量並自動校準 KNN 閾值
+                self._ClassVecs[Name] = ClassVecs
+                KnnDists = self._computeWithinClassKnnDists(ClassVecs)
+                MeanD    = float(np.mean(KnnDists))
+                StdD     = float(np.std(KnnDists))
+                self._ClassKnnThresh[Name] = MeanD + KNN_THRESH_FACTOR * StdD
+                print(f"  KNN閾值[{Name}]: {self._ClassKnnThresh[Name]:.3f}"
+                      f"  (mean={MeanD:.3f} std={StdD:.3f})")
 
             NClasses = len(self._ClassNames)
             D        = Xnorm.shape[1]
@@ -169,7 +187,8 @@ class SvmClassifier:
             self._IsTrained = False
 
     def predict(self, X: np.ndarray,
-                Thresholds: np.ndarray = None) -> tuple:
+                Thresholds: np.ndarray = None,
+                MarginThresholds: np.ndarray = None) -> tuple:
         """
         預測人名與信心度。SVM / cosine 預測後加餘弦驗證。
 
@@ -186,7 +205,8 @@ class SvmClassifier:
         Confs = []
 
         for i, x in enumerate(X):
-            Thresh = float(Thresholds[i]) if Thresholds is not None else self._Threshold
+            Thresh       = float(Thresholds[i])       if Thresholds       is not None else self._Threshold
+            MarginThresh = float(MarginThresholds[i]) if MarginThresholds is not None else self._MarginThresh
 
             # ── 前處理（與訓練相同）──────────────────────────────────────────
             xz   = (x - self._GlobalMean) / self._GlobalStd
@@ -225,9 +245,9 @@ class SvmClassifier:
                 if Conf < Thresh:
                     Name   = "Unknown"
                     Reject = f"低信心({Conf:.3f}<{Thresh:.2f})"
-                elif Margin < self._MarginThresh:
+                elif Margin < MarginThresh:
                     Name   = "Unknown"
-                    Reject = f"分差小({Margin:.2f}<{self._MarginThresh:.2f})"
+                    Reject = f"分差小({Margin:.2f}<{MarginThresh:.2f})"
                 else:
                     Name   = self._ClassNames[BestIdx]
                     Reject = ""
@@ -238,17 +258,28 @@ class SvmClassifier:
                 Tag = f"[SVM/{self._Label}]" if self._Label else "[SVM]"
                 RejectStr = f"  ✗{Reject}" if Reject else ""
                 print(f"{Tag} Scores=[{ScoreStr}]"
-                      f"  margin={Margin:.2f}  sigmoid={Conf:.3f}"
+                      f"  margin={Margin:.2f}(閾{MarginThresh:.2f})"
+                      f"  sigmoid={Conf:.3f}(閾{Thresh:.2f})"
                       f"  → {Name}{RejectStr}", end="")
 
-            # ── 餘弦驗證：SVM 認出的人，再確認與其平均向量的相似度 ────────────
+            # ── 餘弦驗證（可選，預設關閉）────────────────────────────────────
             if Name != "Unknown" and Name in self._ClassMeans:
                 VerifyCos = float(np.dot(xn, self._ClassMeans[Name]))
                 if VerifyCos < self._CosineVerifyThresh:
-                    print(f"  ✗驗證失敗(cos={VerifyCos:.3f}<{self._CosineVerifyThresh:.2f}) → Unknown")
+                    print(f"  ✗cos({VerifyCos:.3f}) → Unknown", end="")
                     Name = "Unknown"
                 else:
-                    print(f"  ✓驗證通過(cos={VerifyCos:.3f})")
+                    print(f"  cos={VerifyCos:.3f}", end="")
+
+            # ── KNN 驗證：確認 query 是否落在該人訓練樣本的鄰近範圍內 ──────────
+            if Name != "Unknown" and Name in self._ClassVecs:
+                KnnDist   = self._knnVerify(xn, Name)
+                KnnThresh = self._ClassKnnThresh.get(Name, float('inf'))
+                if KnnDist > KnnThresh:
+                    print(f"  ✗knn({KnnDist:.3f}>{KnnThresh:.3f}) → Unknown")
+                    Name = "Unknown"
+                else:
+                    print(f"  ✓knn({KnnDist:.3f}<{KnnThresh:.3f})")
             else:
                 print()
 
@@ -264,6 +295,28 @@ class SvmClassifier:
     # ──────────────────────────────────────────────────────────────────────────
     # 私有方法
     # ──────────────────────────────────────────────────────────────────────────
+
+    def _computeWithinClassKnnDists(self, Vecs: np.ndarray) -> np.ndarray:
+        """計算每個樣本到其 K 個最近類別內鄰居的平均 L2 距離（排除自身）。"""
+        N = len(Vecs)
+        K = min(KNN_K, N - 1)
+        if K <= 0:
+            return np.full(N, 0.1)
+        Dists = []
+        for i in range(N):
+            Diff = Vecs - Vecs[i]
+            L2   = np.sqrt(np.sum(Diff ** 2, axis=1))
+            L2[i] = np.inf
+            Dists.append(float(np.mean(np.sort(L2)[:K])))
+        return np.array(Dists)
+
+    def _knnVerify(self, xn: np.ndarray, Name: str) -> float:
+        """計算 query 到指定類別 K 個最近訓練樣本的平均 L2 距離。"""
+        Vecs = self._ClassVecs[Name]
+        K    = min(KNN_K, len(Vecs))
+        Diff = Vecs - xn
+        L2   = np.sqrt(np.sum(Diff ** 2, axis=1))
+        return float(np.mean(np.sort(L2)[:K]))
 
     def _trainOneBinary(self, X: np.ndarray, Y: np.ndarray) -> tuple:
         """

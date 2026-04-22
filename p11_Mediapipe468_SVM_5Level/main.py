@@ -35,7 +35,7 @@ LEARN_TIMEOUT_SECONDS = 40    # 學習模式最長等待時間（秒）
 UI_REFRESH_MS         = 30     # webcam 畫面更新間隔（毫秒）
 LEARN_TICK_MS         = 500    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
 DETECT_TICK_MS        = 300    # 偵測時每次推論的間隔
-DETECT_NONE_DETECT_TARGET = 5  # 滑動窗口多數決所需幀數
+DETECT_NONE_DETECT_TARGET = 10  # 滑動窗口多數決所需幀數
 
 
 # ==============================================================================
