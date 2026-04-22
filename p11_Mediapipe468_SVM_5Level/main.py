@@ -23,9 +23,9 @@ import customtkinter
 from PIL import Image
 import tkinter.messagebox as MsgBox
 
-from face_recognizer import FaceRecognizer
+from face_recognizer import FaceRecognizer, UNKNOWN_CLASS
 from face_pose_classifier import POSE_NAMES, POSE_NAMES_EN
-from svm_classifier_np import SVM_UNKNOWN_THRESH
+from svm_classifier_np import SVM_UNKNOWN_THRESH, SVM_MARGIN_THRESH
 
 # ── 應用程式常數 ──────────────────────────────────────────────────────────────
 #LEARN_TARGET_FRAMES   = 100    # 學習模式目標收集 frame 數（分5類需較多樣本）
@@ -243,7 +243,7 @@ class MainApp(customtkinter.CTk):
         self._PbarFrames.grid(row=1, column=0, sticky="ew", padx=5, pady=(2, 5))
         self._PbarFrames.set(0)
 
-        # ── Row 2：信心度閾值 Slider ─────────────────────────────────────────
+        # ── Row 2：閾值 Sliders ──────────────────────────────────────────────
         RowThresh = customtkinter.CTkFrame(self)
         RowThresh.grid(row=2, column=0, sticky="ew", padx=10, pady=5)
         RowThresh.grid_columnconfigure(1, weight=1)
@@ -262,6 +262,21 @@ class MainApp(customtkinter.CTk):
             RowThresh, text=f"{SVM_UNKNOWN_THRESH:.2f}", width=44, anchor="e"
         )
         self._LblCosineVal.grid(row=0, column=2, padx=(4, 8), pady=8)
+
+        customtkinter.CTkLabel(RowThresh, text="分差閾值(Margin)", anchor="w").grid(
+            row=1, column=0, sticky="w", padx=(8, 4), pady=8
+        )
+        self._SldMargin = customtkinter.CTkSlider(
+            RowThresh, from_=0.0, to=3.0,
+            number_of_steps=300,
+            command=self._OnMarginThreshChanged
+        )
+        self._SldMargin.set(SVM_MARGIN_THRESH)
+        self._SldMargin.grid(row=1, column=1, sticky="ew", padx=4, pady=8)
+        self._LblMarginVal = customtkinter.CTkLabel(
+            RowThresh, text=f"{SVM_MARGIN_THRESH:.2f}", width=44, anchor="e"
+        )
+        self._LblMarginVal.grid(row=1, column=2, padx=(4, 8), pady=8)
 
         # ── Row 3：Webcam 畫面 ───────────────────────────────────────────────
         Row2 = customtkinter.CTkFrame(self)
@@ -571,7 +586,7 @@ class MainApp(customtkinter.CTk):
         self._BtnLearn.configure(state="disabled")
         self._LblRemain.configure(
             text=f"Remaining study seconds: {LEARN_TIMEOUT_SECONDS}"
-            "  ← 請慢慢左右、上下轉動頭部，讓五種姿態都能收集到樣本"
+            "  ← 請先看正面，再慢慢左右轉頭、點頭仰頭各 2 次，最後回正面"
         )
         self._LblLearnFrames.configure(
             text="已收集 0 張：置中:0 左上:0 右上:0 左下:0 右下:0"
@@ -704,6 +719,12 @@ class MainApp(customtkinter.CTk):
         self._LblCosineVal.configure(text=f"{Value:.2f}")
         if self._Recognizer is not None:
             self._Recognizer.SetThresholds(CosineThresh=Value)
+
+    def _OnMarginThreshChanged(self, Value: float) -> None:
+        """分差閾值 Slider 拖動時，即時更新顯示值與辨識器閾值。"""
+        self._LblMarginVal.configure(text=f"{Value:.2f}")
+        if self._Recognizer is not None:
+            self._Recognizer.SetThresholds(MarginThresh=Value)
 
     # ──────────────────────────────────────────────────────────────────────────
     # 關閉處理

@@ -1,15 +1,18 @@
 """
 face_feature_3d.py  (p11 改版)
 
-臉部特徵萃取 — 以主管建議的向量夾角法實作。
+臉部特徵萃取 — 以主管建議的向量夾角法實作，加入頭部姿態正規化。
 
-【設計原則（主管建議）】
+【設計原則】
+  Step 0 姿態正規化：從臉部幾何建立旋轉矩陣 R，
+          套用 R^T 將所有 landmark 轉回正臉座標系，
+          消除頭部左右轉、上下仰的影響。
   Step 1 重心向量化：v_i = P_i − P_鼻尖
           以鼻尖為參考原點，解決平移問題。
   Step 2 單位化：    unit_i = v_i / ‖v_i‖
           方向向量化，解決個人頭型大小的縮放問題。
   Step 3 點對點向量夾角：θ_ij = arccos(unit_i · unit_j)
-          夾角為 3D 幾何不變量，不受頭部遠近影響。
+          在正規化座標系下，夾角真正成為姿態不變量。
 
 【特徵向量組成（325 維）】
   Part A：C(25, 2) = 300 個向量夾角（弧度 0 ~ π）
@@ -70,9 +73,55 @@ _PAIRS = np.array(list(combinations(range(len(_KEY_INDICES)), 2)), dtype=int)
 MIN_FACE_WIDTH = 1e-5
 
 
+def _buildFaceRotationMatrix(Landmarks3D: np.ndarray) -> np.ndarray:
+    """
+    從左右顴骨（234, 454）與額頭/下巴（10, 152）建立臉部座標系旋轉矩陣 R。
+
+    臉部座標系定義：
+      X 軸：左顴骨 → 右顴骨（臉部左右方向）
+      Y 軸：下巴 → 額頭（臉部上下方向），與 X 正交化
+      Z 軸：X × Y（臉部法向量，正臉時指向攝影機）
+
+    R 的三列為上述三軸在攝影機空間的方向向量。
+    R^T（= R^-1）將攝影機空間座標轉回臉部正規化座標系。
+
+    Returns
+    -------
+    np.ndarray, shape=(3, 3)，失敗時回傳單位矩陣。
+    """
+    try:
+        # X 軸：左顴骨 → 右顴骨
+        XRaw  = Landmarks3D[454] - Landmarks3D[234]
+        XNorm = np.linalg.norm(XRaw)
+        if XNorm < 1e-8:
+            return np.eye(3)
+        XAxis = XRaw / XNorm
+
+        # Y 軸：下巴 → 額頭（Gram-Schmidt 對 X 正交化）
+        YRaw  = Landmarks3D[10] - Landmarks3D[152]
+        YAxis = YRaw - np.dot(YRaw, XAxis) * XAxis
+        YNorm = np.linalg.norm(YAxis)
+        if YNorm < 1e-8:
+            return np.eye(3)
+        YAxis = YAxis / YNorm
+
+        # Z 軸：X × Y
+        ZAxis = np.cross(XAxis, YAxis)
+        ZNorm = np.linalg.norm(ZAxis)
+        if ZNorm < 1e-8:
+            return np.eye(3)
+        ZAxis = ZAxis / ZNorm
+
+        return np.column_stack([XAxis, YAxis, ZAxis])   # shape (3, 3)
+
+    except Exception:
+        return np.eye(3)
+
+
 def extractFeatures3D(Landmarks3D: np.ndarray) -> np.ndarray | None:
     """
     從 468 個 3D 歸一化 landmark 萃取 325 維臉部幾何特徵向量。
+    先將 landmark 旋轉至正臉座標系，再取夾角特徵，使特徵對頭部姿態不變。
 
     Parameters
     ----------
@@ -88,12 +137,16 @@ def extractFeatures3D(Landmarks3D: np.ndarray) -> np.ndarray | None:
             print(f"[face_feature_3d] 輸入維度錯誤：{Landmarks3D.shape}，預期 (468, 3)")
             return None
 
-        # Step 1：以鼻尖為原點，計算 25 個關鍵點的位移向量
-        NoseTip = Landmarks3D[_NOSE_TIP_LM_IDX]        # shape=(3,)
-        KeyPts  = Landmarks3D[_KEY_INDICES]              # shape=(25, 3)
-        Vecs    = KeyPts - NoseTip                        # shape=(25, 3)
+        # Step 0：建立旋轉矩陣，將所有 landmark 轉回正臉座標系
+        R        = _buildFaceRotationMatrix(Landmarks3D)
+        NoseTip  = Landmarks3D[_NOSE_TIP_LM_IDX]           # shape=(3,)
+        Centered = Landmarks3D - NoseTip                    # shape=(468, 3)
+        Canonical = (R.T @ Centered.T).T                    # shape=(468, 3)
 
-        # 計算臉部寬度（左右顴骨間距）作為尺度基準
+        # Step 1：取 25 個關鍵點位移向量（已在正規化座標系，鼻尖為原點）
+        Vecs = Canonical[_KEY_INDICES]                      # shape=(25, 3)
+
+        # 計算臉部寬度（顴骨間距，正規化座標系下）
         FaceWidth = float(
             np.linalg.norm(Vecs[_CHEEK_LEFT_IDX] - Vecs[_CHEEK_RIGHT_IDX])
         )
@@ -103,16 +156,15 @@ def extractFeatures3D(Landmarks3D: np.ndarray) -> np.ndarray | None:
         # Part B：各關鍵點到鼻尖的正規化距離（‖v_i‖ / 臉部寬度）
         NormDists = np.linalg.norm(Vecs, axis=1) / FaceWidth    # shape=(25,)
 
-        # Step 2：將各位移向量單位化（方向化）
+        # Step 2：將各位移向量單位化
         VecNorms = np.linalg.norm(Vecs, axis=1, keepdims=True)  # shape=(25, 1)
-        VecNorms[VecNorms < 1e-8] = 1.0                          # 防零向量除法
-        UnitVecs = Vecs / VecNorms                                # shape=(25, 3)
+        VecNorms[VecNorms < 1e-8] = 1.0
+        UnitVecs = Vecs / VecNorms                               # shape=(25, 3)
 
         # Step 3：Part A — C(25,2)=300 對向量夾角（弧度 0 ~ π）
-        # cos θ_ij = unit_i · unit_j；arccos 轉換為實際夾角
-        CosMat  = np.clip(UnitVecs @ UnitVecs.T, -1.0, 1.0)     # shape=(25, 25)
-        AngMat  = np.arccos(CosMat)                               # shape=(25, 25)
-        Angles  = AngMat[_PAIRS[:, 0], _PAIRS[:, 1]]             # shape=(300,)
+        CosMat = np.clip(UnitVecs @ UnitVecs.T, -1.0, 1.0)      # shape=(25, 25)
+        AngMat = np.arccos(CosMat)                                # shape=(25, 25)
+        Angles = AngMat[_PAIRS[:, 0], _PAIRS[:, 1]]              # shape=(300,)
 
         return np.concatenate([Angles, NormDists]).astype(float)  # shape=(325,)
 

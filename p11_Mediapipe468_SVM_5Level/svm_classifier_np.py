@@ -16,18 +16,28 @@ svm_classifier_np.py
   只有一人時，使用者無法提供負類樣本。
   改為儲存所有正規化訓練向量，推論時計算 query 與各訓練樣本的 cosine 相似度，
   取最大值；sigmoid 轉換後與閾值比較。
-  此方式與 p09 k-NN 的陌生人偵測邏輯一致，確保 1 人亦能有效判斷陌生人。
+
+【餘弦驗證（兩種模式共用）】
+  SVM / cosine 得出預測人名後，額外計算 query 與該人正規化平均向量的餘弦相似度。
+  若低於 CosineVerifyThresh → 判為 Unknown（防止陌生人被 SVM 誤認）。
 
 【流程】
-  多人訓練：收集所有樣本 → Z-Score + L2 正規化 → OvR SGD hinge loss 訓練
-  單人訓練：Z-Score + L2 正規化 → 儲存訓練向量矩陣
-  推論：同樣前處理 → 分類器計分 → sigmoid → 閾值判斷
+  多人訓練：收集所有樣本 → Z-Score + L2 正規化 → OvR SGD hinge loss 訓練 + 儲存各人平均向量
+  單人訓練：Z-Score + L2 正規化 → 儲存訓練向量矩陣 + 儲存平均向量
+  推論：同樣前處理 → 分類器計分 → sigmoid → 閾值判斷 → 餘弦驗證
 """
 
 import numpy as np
 
 # 信心度閾值預設值（sigmoid 值，低於此值 → Unknown）
 SVM_UNKNOWN_THRESH = 0.60
+
+# 分差閾值預設值（多人模式：top-1 與 top-2 原始分差低於此值 → Unknown）
+# 已知者：SVM 對最佳類別信心高，分差大；陌生人：各類分數相近，分差小
+SVM_MARGIN_THRESH = 0.50
+
+# 餘弦驗證閾值預設值（query 與預測人的平均向量餘弦相似度，低於此值 → Unknown）
+COSINE_VERIFY_THRESH = 0.5
 
 # SGD 超參數（多人模式）
 SGD_N_EPOCHS      = 200
@@ -42,8 +52,7 @@ class SvmClassifier:
     線性 SVM 人臉分類器。
     多人模式：OvR SGD hinge loss。
     單人模式：最大 Cosine 相似度比對。
-
-    兩種模式均使用相同的 Z-Score + L2 前處理，介面完全一致。
+    兩種模式均在 predict 後加餘弦驗證，降低陌生人誤認率。
     """
 
     def __init__(self, Threshold: float = SVM_UNKNOWN_THRESH,
@@ -52,20 +61,25 @@ class SvmClassifier:
                  LrDecay: float = SGD_LR_DECAY,
                  LambdaReg: float = SGD_LAMBDA_REG,
                  BatchSize: int = SGD_BATCH_SIZE,
-                 Label: str = ""):
-        self._Threshold         = Threshold
-        self._NEpochs           = NEpochs
-        self._LearningRate      = LearningRate
-        self._LrDecay           = LrDecay
-        self._LambdaReg         = LambdaReg
-        self._BatchSize         = BatchSize
-        self._Label             = Label       # 姿態識別標籤，用於 print 識別
+                 Label: str = "",
+                 MarginThresh: float = SVM_MARGIN_THRESH,
+                 CosineVerifyThresh: float = COSINE_VERIFY_THRESH):
+        self._Threshold          = Threshold
+        self._NEpochs            = NEpochs
+        self._LearningRate       = LearningRate
+        self._LrDecay            = LrDecay
+        self._LambdaReg          = LambdaReg
+        self._BatchSize          = BatchSize
+        self._Label              = Label
+        self._MarginThresh       = MarginThresh
+        self._CosineVerifyThresh = CosineVerifyThresh
 
         self._GlobalMean        = None    # shape (D,)，Z-Score 均值
         self._GlobalStd         = None    # shape (D,)，Z-Score 標準差
         self._W                 = None    # shape (n_classes, D) 或 (N_samples, D)（單人）
         self._b                 = None    # shape (n_classes,) 或 (N_samples,)（單人）
         self._ClassNames        = []      # 人名列表，索引對應整數標籤
+        self._ClassMeans        = {}      # {人名: 正規化平均向量 shape (D,)}
         self._SinglePersonMode  = False   # True = 使用最大 Cosine 模式
         self._IsTrained         = False
 
@@ -75,7 +89,7 @@ class SvmClassifier:
 
     def fit(self, Samples: dict) -> None:
         """
-        從各人的樣本字典建立分類器。
+        從各人的樣本字典建立分類器並計算各人正規化平均向量。
 
         Parameters
         ----------
@@ -108,14 +122,23 @@ class SvmClassifier:
             Norms[Norms < 1e-10] = 1.0
             Xnorm = Zmat / Norms    # shape (N, D)
 
-            # ── 建立整數標籤 ──────────────────────────────────────────────────
-            self._ClassNames = list(dict.fromkeys(AllLabels))   # 保持插入順序去重
+            # ── 計算各人正規化平均向量（供餘弦驗證使用）─────────────────────
+            self._ClassNames = list(dict.fromkeys(AllLabels))
+            self._ClassMeans = {}
+            AllLabelsArr = np.array(AllLabels)
+            for Name in self._ClassNames:
+                Mask      = AllLabelsArr == Name
+                ClassVecs = Xnorm[Mask]                   # shape (K, D)
+                Mean      = np.mean(ClassVecs, axis=0)    # shape (D,)
+                MeanNorm  = np.linalg.norm(Mean)
+                self._ClassMeans[Name] = Mean / MeanNorm if MeanNorm > 1e-8 else Mean
+
             NClasses = len(self._ClassNames)
             D        = Xnorm.shape[1]
 
             # ── 單人模式：儲存訓練向量矩陣，推論時用最大 Cosine 相似度 ─────────
             if NClasses == 1:
-                self._W                = Xnorm.copy()              # (N_samples, D)
+                self._W                = Xnorm.copy()
                 self._b                = np.zeros(len(Xnorm), dtype=float)
                 self._SinglePersonMode = True
                 self._IsTrained        = True
@@ -148,14 +171,12 @@ class SvmClassifier:
     def predict(self, X: np.ndarray,
                 Thresholds: np.ndarray = None) -> tuple:
         """
-        預測人名與信心度。
+        預測人名與信心度。SVM / cosine 預測後加餘弦驗證。
 
         Parameters
         ----------
         X          : np.ndarray, shape (n_samples, n_features)
         Thresholds : np.ndarray, shape (n_samples,)，可選。
-                     每個樣本的有效閾值（動態轉角補償後）；
-                     若為 None，全部使用 self._Threshold。
 
         Returns
         -------
@@ -177,8 +198,8 @@ class SvmClassifier:
             xn = xz / Norm
 
             if self._SinglePersonMode:
-                # ── 單人模式：與所有訓練向量的最大 Cosine 相似度 ─────────────
-                Sims   = self._W @ xn      # cosine 相似度，shape (N_samples,)
+                # ── 單人模式：最大 Cosine 相似度 ─────────────────────────────
+                Sims   = self._W @ xn
                 MaxSim = float(np.max(Sims))
                 Conf   = float(1.0 / (1.0 + np.exp(-MaxSim)))
                 Name   = self._ClassNames[0] if Conf >= Thresh else "Unknown"
@@ -186,22 +207,50 @@ class SvmClassifier:
                 Tag = f"[SVM-1P/{self._Label}]" if self._Label else "[SVM-1P]"
                 print(f"{Tag} 最大cosine={MaxSim:.3f}"
                       f"  sigmoid={Conf:.3f}(閾{Thresh:.2f})"
-                      f"  → {Name}")
+                      f"  → {Name}", end="")
             else:
                 # ── 多人模式：OvR 線性分類器 ──────────────────────────────────
-                Scores  = self._W @ xn + self._b   # shape (n_classes,)
+                Scores  = self._W @ xn + self._b
                 BestIdx = int(np.argmax(Scores))
                 BestRaw = float(Scores[BestIdx])
                 Conf    = float(1.0 / (1.0 + np.exp(-BestRaw)))
-                Name    = self._ClassNames[BestIdx] if Conf >= Thresh else "Unknown"
+
+                # 分差檢查：top-1 與 top-2 分差小 → 模型搖擺不定 → Unknown
+                if len(Scores) >= 2:
+                    SecondRaw = float(np.sort(Scores)[-2])
+                    Margin    = BestRaw - SecondRaw
+                else:
+                    Margin = BestRaw
+
+                if Conf < Thresh:
+                    Name   = "Unknown"
+                    Reject = f"低信心({Conf:.3f}<{Thresh:.2f})"
+                elif Margin < self._MarginThresh:
+                    Name   = "Unknown"
+                    Reject = f"分差小({Margin:.2f}<{self._MarginThresh:.2f})"
+                else:
+                    Name   = self._ClassNames[BestIdx]
+                    Reject = ""
 
                 ScoreStr = "  ".join(
                     f"{n}:{s:.2f}" for n, s in zip(self._ClassNames, Scores)
                 )
                 Tag = f"[SVM/{self._Label}]" if self._Label else "[SVM]"
+                RejectStr = f"  ✗{Reject}" if Reject else ""
                 print(f"{Tag} Scores=[{ScoreStr}]"
-                      f"  獲勝={self._ClassNames[BestIdx]} sigmoid={Conf:.3f}(閾{Thresh:.2f})"
-                      f"  → {Name}")
+                      f"  margin={Margin:.2f}  sigmoid={Conf:.3f}"
+                      f"  → {Name}{RejectStr}", end="")
+
+            # ── 餘弦驗證：SVM 認出的人，再確認與其平均向量的相似度 ────────────
+            if Name != "Unknown" and Name in self._ClassMeans:
+                VerifyCos = float(np.dot(xn, self._ClassMeans[Name]))
+                if VerifyCos < self._CosineVerifyThresh:
+                    print(f"  ✗驗證失敗(cos={VerifyCos:.3f}<{self._CosineVerifyThresh:.2f}) → Unknown")
+                    Name = "Unknown"
+                else:
+                    print(f"  ✓驗證通過(cos={VerifyCos:.3f})")
+            else:
+                print()
 
             Names.append(Name)
             Confs.append(max(0.0, Conf))
@@ -219,15 +268,6 @@ class SvmClassifier:
     def _trainOneBinary(self, X: np.ndarray, Y: np.ndarray) -> tuple:
         """
         以 mini-batch SGD 訓練單個二元線性 SVM（hinge loss + L2 正則化）。
-
-        Parameters
-        ----------
-        X : shape (N, D)，已 Z-Score + L2 正規化的樣本矩陣
-        Y : shape (N,)，±1 二元標籤
-
-        Returns
-        -------
-        (w: ndarray(D,), b: float)
         """
         N  = X.shape[0]
         D  = X.shape[1]
@@ -241,24 +281,21 @@ class SvmClassifier:
 
             for Start in range(0, N, BatchSize):
                 Batch = Indices[Start: Start + BatchSize]
-                Xb    = X[Batch]    # (B, D)
-                Yb    = Y[Batch]    # (B,)
+                Xb    = X[Batch]
+                Yb    = Y[Batch]
 
                 Scores = Xb @ w + b
                 Margin = Yb * Scores
-                Mask   = Margin < 1.0   # hinge 激活條件
+                Mask   = Margin < 1.0
 
                 if Mask.any():
-                    # hinge 梯度：−mean(y_i × x_i) for violated samples
                     dw = -np.mean(Yb[Mask, np.newaxis] * Xb[Mask], axis=0)
                     db = -float(np.mean(Yb[Mask]))
                 else:
                     dw = np.zeros(D)
                     db = 0.0
 
-                # L2 正則化梯度（只作用於 w，不正則化 b）
                 dw += self._LambdaReg * w
-
                 w -= Lr * dw
                 b -= Lr * db
 

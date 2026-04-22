@@ -2,15 +2,15 @@
 face_recognizer.py  (p11)
 
 FaceRecognizer 類別：整合 MpFaceLandmarker、face_feature_3d、
-face_pose_classifier 與 svm_classifier_np，實作五類姿態 SVM 人臉辨識。
+face_pose_classifier 與 svm_classifier_np，實作姿態不變人臉辨識。
 
-【與 p10 的差異】
-  - 訓練資料按姿態類別（0~4）分類儲存
-  - 訓練時依各姿態分別建立一個 SvmClassifier（共 5 個）
-  - 推論時先判斷當前姿態，再選對應分類器；若無則備援使用正臉分類器
-  - NPZ 格式新增 P 欄位（姿態標籤 0~4）
-  - AddSample 回傳值增加 PoseCat（供 UI 即時顯示姿態）
-  - Predict 回傳值增加 PoseCat（供 UI 即時顯示姿態）
+【架構說明】
+  face_feature_3d 在取特徵前先將 landmark 旋轉至正臉座標系（姿態正規化），
+  使各角度的同一張臉產生接近一致的特徵向量。
+  因此只需一個 SvmClassifier，以所有角度的樣本混合訓練即可。
+
+  訓練資料仍依姿態類別分開儲存（供 UI 顯示各角度蒐集進度），
+  訓練時合併所有姿態的樣本給單一 SVM。
 
 模型儲存至 face_model.npz（純 NumPy，無 sklearn/scipy 依賴）。
 """
@@ -20,40 +20,35 @@ import numpy as np
 
 from mp_face_landmarker import MpFaceLandmarker
 from face_feature_3d import extractFeatures3D
-from face_pose_classifier import (classifyPose, classifyPoseWithValues,
+from face_pose_classifier import (classifyPoseWithValues,
                                   POSE_FRONTAL, POSE_NAMES)
-from svm_classifier_np import SvmClassifier, SVM_UNKNOWN_THRESH
+from svm_classifier_np import SvmClassifier, SVM_UNKNOWN_THRESH, SVM_MARGIN_THRESH
 
 DEFAULT_MODEL_PATH = "face_model.npz"
 N_POSES = 5
 
-# ── 推論策略 ──────────────────────────────────────────────────────────────────
-# 0 = 姿態路由：依當前姿態選對應 SVM；信心度過低時備援全角度 SVM
-# 1 = 全比五個：五個 SVM 全跑，取信心度最高者
-DETECT_STRATEGY = 0
-
-# 策略 0 的備援閾值：側臉 SVM 信心度低於此值時，改用全角度 SVM（index 0）補判
-# 全角度 SVM（index 0）以所有姿態樣本混合訓練，對各角度均有一定覆蓋
-FALLBACK_CONF_THRESH = 0.59
+# 訓練用陌生人類別的內部名稱（預測到此類別時對外回傳 "Unknown"）
+UNKNOWN_CLASS = "Unknown"
 
 
 class FaceRecognizer:
     """
-    五類姿態 SVM 人臉辨識器。
+    姿態不變 SVM 人臉辨識器。
     以 MpFaceLandmarker 取得 468 個 3D landmark，
-    萃取 325 維向量夾角特徵，依姿態類別交由對應的 SvmClassifier 分類。
+    經姿態正規化後萃取 325 維特徵，交由單一 SvmClassifier 分類。
     """
 
     def __init__(self, ModelPath: str = DEFAULT_MODEL_PATH):
-        self._ModelPath   = ModelPath
-        self._Detector    = MpFaceLandmarker()
+        self._ModelPath  = ModelPath
+        self._Detector   = MpFaceLandmarker()
         # 訓練資料：{人名: {姿態類別(0~4): [特徵向量, ...]}}
         self._Samples: dict = {}
-        # 五個姿態各一個分類器（未有訓練資料時為 None）
-        self._Classifiers = [None] * N_POSES
-        # 共用信心度閾值
-        self._Threshold   = SVM_UNKNOWN_THRESH
-        self._IsTrained   = False
+        # 單一分類器
+        self._Classifier = None
+        # 共用閾值
+        self._Threshold    = SVM_UNKNOWN_THRESH
+        self._MarginThresh = SVM_MARGIN_THRESH
+        self._IsTrained    = False
 
     # ──────────────────────────────────────────────────────────────────────────
     # 公開 API
@@ -61,7 +56,7 @@ class FaceRecognizer:
 
     def LoadModel(self) -> bool:
         """
-        載入 face_model.npz 並重新訓練五個姿態分類器。
+        載入 face_model.npz 並重新訓練分類器。
 
         Returns
         -------
@@ -137,20 +132,9 @@ class FaceRecognizer:
         """
         從 BGR 影像偵測人臉，萃取特徵向量並依姿態類別加入訓練樣本。
 
-        Parameters
-        ----------
-        Frame      : BGR 格式的 numpy 影像
-        PersonName : 要學習的人名
-        Retrain    : 加入後是否立即重訓（批次學習傳 False，結束後呼叫 FinishLearning）
-
         Returns
         -------
         (Added: bool, KeyPoints: list, PoseCat: int, Yaw: float, Pitch: float)
-          Added     : 是否成功加入至少一個有效樣本
-          KeyPoints : 偵測到的臉部關鍵點列表（供 UI 疊加顯示）
-          PoseCat   : 本幀的姿態類別（供 UI 顯示目前姿態）
-          Yaw       : 水平轉角原始值（負=左，正=右）
-          Pitch     : 垂直傾角原始值（負=上，正=下）
         """
         try:
             Detections = self._Detector.detect(Frame)
@@ -160,11 +144,11 @@ class FaceRecognizer:
             if PersonName not in self._Samples:
                 self._Samples[PersonName] = {}
 
-            Added       = False
+            Added         = False
             KeyPointsList = []
-            LastPoseCat = POSE_FRONTAL
-            LastYaw     = 0.0
-            LastPitch   = 0.0
+            LastPoseCat   = POSE_FRONTAL
+            LastYaw       = 0.0
+            LastPitch     = 0.0
 
             for _, Landmarks3D, KeyPoints in Detections:
                 Vec = extractFeatures3D(Landmarks3D)
@@ -199,10 +183,6 @@ class FaceRecognizer:
         """
         從 BGR 影像偵測並辨識人臉。
 
-        推論策略由模組層級 DETECT_STRATEGY 決定：
-          0 = 姿態路由：依當前姿態選對應 SVM（若無則備援正臉）
-          1 = 全比五個：五個 SVM 全跑，取信心度最高者
-
         Returns
         -------
         list of (Top, Right, Bottom, Left, Name, Confidence, PoseCat, Yaw, Pitch)
@@ -221,79 +201,39 @@ class FaceRecognizer:
                 if Vec is None:
                     continue
 
-                CurrentPose, Yaw, Pitch = classifyPoseWithValues(Landmarks3D)
-                XArr = np.array([Vec])
-
-                if DETECT_STRATEGY == 0:
-                    # ── 策略 0：姿態路由 + 低信心度備援全角度 SVM ────────────
-                    Clf = self._Classifiers[CurrentPose]
-                    if Clf is None or not Clf.IsTrained:
-                        Clf = self._Classifiers[POSE_FRONTAL]
-                    if Clf is None or not Clf.IsTrained:
-                        continue
-                    Names, Confs = Clf.predict(XArr, Thresholds=None)
-                    BestName = Names[0]
-                    BestConf = float(Confs[0])
-                    BestPose = CurrentPose
-
-                    # 側臉信心度不足 → 備援全角度 SVM
-                    if CurrentPose != POSE_FRONTAL and BestConf < FALLBACK_CONF_THRESH:
-                        ClfGlobal = self._Classifiers[POSE_FRONTAL]
-                        if ClfGlobal is not None and ClfGlobal.IsTrained:
-                            GNames, GConfs = ClfGlobal.predict(XArr, Thresholds=None)
-                            GConf = float(GConfs[0])
-                            print(f"[Predict-S0] 姿態={POSE_NAMES[CurrentPose]} "
-                                  f"側臉低分({BestConf:.2f}) → 備援全角度({GConf:.2f})")
-                            if GConf > BestConf:
-                                BestName = GNames[0]
-                                BestConf = GConf
-                                BestPose = POSE_FRONTAL
-                    else:
-                        print(f"[Predict-S0] 姿態={POSE_NAMES[CurrentPose]} → {BestName}({BestConf:.2f})")
-
-                else:
-                    # ── 策略 1：五個全比，取最高信心度 ───────────────────────
-                    BestName = "Unknown"
-                    BestConf = -1.0
-                    BestPose = POSE_FRONTAL
-                    LogParts = []
-
-                    for PoseCat in range(N_POSES):
-                        Clf = self._Classifiers[PoseCat]
-                        if Clf is None or not Clf.IsTrained:
-                            LogParts.append(f"{POSE_NAMES[PoseCat]}:N/A")
-                            continue
-                        Names, Confs = Clf.predict(XArr, Thresholds=None)
-                        Name = Names[0]
-                        Conf = float(Confs[0])
-                        LogParts.append(f"{POSE_NAMES[PoseCat]}:{Name}({Conf:.2f})")
-                        if Conf > BestConf:
-                            BestConf = Conf
-                            BestName = Name
-                            BestPose = PoseCat
-
-                    print(f"[Predict-S1] {' | '.join(LogParts)} → {POSE_NAMES[BestPose]}:{BestName}({BestConf:.2f})")
+                PoseCat, Yaw, Pitch = classifyPoseWithValues(Landmarks3D)
+                Names, Confs = self._Classifier.predict(
+                    np.array([Vec]), Thresholds=None
+                )
+                Name = Names[0]
+                Conf = float(Confs[0])
+                if Name == UNKNOWN_CLASS:
+                    Name = "Unknown"
 
                 Top, Right, Bottom, Left = BoundingBox
                 Results.append((Top, Right, Bottom, Left,
-                                BestName, BestConf, BestPose, Yaw, Pitch))
+                                Name, Conf, PoseCat, Yaw, Pitch))
 
         except Exception as Error:
             print(f"[FaceRecognizer] Predict 失敗：{Error}")
         return Results
 
     def CanDetect(self) -> bool:
-        """若已有訓練資料且至少一個分類器完成訓練，回傳 True。"""
+        """若分類器已完成訓練，回傳 True。"""
         return self._IsTrained
 
-    def SetThresholds(self, CosineThresh: float = None) -> None:
-        """動態更新所有分類器的信心度閾值，無需重訓。"""
+    def SetThresholds(self, CosineThresh: float = None,
+                      MarginThresh: float = None) -> None:
+        """動態更新分類器的信心度閾值與分差閾值，無需重訓。"""
         try:
             if CosineThresh is not None:
                 self._Threshold = CosineThresh
-                for Clf in self._Classifiers:
-                    if Clf is not None:
-                        Clf._Threshold = CosineThresh
+                if self._Classifier is not None:
+                    self._Classifier._Threshold = CosineThresh
+            if MarginThresh is not None:
+                self._MarginThresh = MarginThresh
+                if self._Classifier is not None:
+                    self._Classifier._MarginThresh = MarginThresh
         except Exception as Error:
             print(f"[FaceRecognizer] SetThresholds 失敗：{Error}")
 
@@ -317,10 +257,7 @@ class FaceRecognizer:
         }
 
     def GetPersonPoseCounts(self, PersonName: str) -> dict:
-        """
-        回傳指定人名各姿態的樣本數量 {姿態類別: 數量}。
-        供學習 UI 顯示各姿態收集進度。
-        """
+        """回傳指定人名各姿態的樣本數量 {姿態類別: 數量}。"""
         if PersonName not in self._Samples:
             return {}
         return {
@@ -337,8 +274,8 @@ class FaceRecognizer:
             if self._Samples:
                 self._trainMatcher()
             else:
-                self._Classifiers = [None] * N_POSES
-                self._IsTrained   = False
+                self._Classifier = None
+                self._IsTrained  = False
             return True
         except Exception as Error:
             print(f"[FaceRecognizer] RemovePerson 失敗：{Error}")
@@ -350,44 +287,42 @@ class FaceRecognizer:
 
     def _trainMatcher(self) -> None:
         """
-        訓練五個 SvmClassifier：
-          index 0（全角度）：所有姿態樣本混合，作為備援分類器
-          index 1~4       ：各姿態專屬樣本，精準辨識大幅轉頭
+        將所有人、所有姿態的樣本合併，訓練單一 SvmClassifier。
         """
         try:
-            AnyTrained = False
+            AllSamples = {}
+            for Name, PoseDict in self._Samples.items():
+                AllVecs = [v for Vecs in PoseDict.values() for v in Vecs]
+                if AllVecs:
+                    AllSamples[Name] = AllVecs
 
-            for PoseCat in range(N_POSES):
-                if PoseCat == POSE_FRONTAL:
-                    # 全角度 SVM：收集所有人、所有姿態的樣本合併
-                    PoseSamples = {}
-                    for Name, PoseDict in self._Samples.items():
-                        AllVecs = [v for Vecs in PoseDict.values() for v in Vecs]
-                        if AllVecs:
-                            PoseSamples[Name] = AllVecs
-                    Label = "全角度"
+            if not AllSamples:
+                self._Classifier = None
+                self._IsTrained  = False
+                return
+
+            # 自動 downsample：所有類別降採樣至最少類別的樣本數，避免類別不平衡
+            MinCount = min(len(v) for v in AllSamples.values())
+            BalancedSamples = {}
+            for Name, Vecs in AllSamples.items():
+                if len(Vecs) > MinCount:
+                    Indices = np.random.choice(len(Vecs), MinCount, replace=False)
+                    BalancedSamples[Name] = [Vecs[i] for i in Indices]
                 else:
-                    # 姿態專屬 SVM：只取該姿態的樣本
-                    PoseSamples = {}
-                    for Name, PoseDict in self._Samples.items():
-                        Vecs = PoseDict.get(PoseCat, [])
-                        if Vecs:
-                            PoseSamples[Name] = Vecs
-                    Label = POSE_NAMES[PoseCat]
+                    BalancedSamples[Name] = Vecs
+            AllSamples = BalancedSamples
 
-                if PoseSamples:
-                    Clf = SvmClassifier(Threshold=self._Threshold, Label=Label)
-                    Clf.fit(PoseSamples)
-                    self._Classifiers[PoseCat] = Clf
-                    if Clf.IsTrained:
-                        AnyTrained = True
-                        TotalVecs  = sum(len(v) for v in PoseSamples.values())
-                        print(f"[FaceRecognizer] SVM[{PoseCat}]({Label}) "
-                              f"訓練完成：{len(PoseSamples)}人 / {TotalVecs}筆")
-                else:
-                    self._Classifiers[PoseCat] = None
+            Clf = SvmClassifier(Threshold=self._Threshold,
+                               MarginThresh=self._MarginThresh,
+                               Label="全角度")
+            Clf.fit(AllSamples)
+            self._Classifier = Clf
+            self._IsTrained  = Clf.IsTrained
 
-            self._IsTrained = AnyTrained
+            if Clf.IsTrained:
+                TotalVecs = sum(len(v) for v in AllSamples.values())
+                print(f"[FaceRecognizer] 全角度 SVM 訓練完成："
+                      f"{len(AllSamples)}人 / {TotalVecs}筆（每類 {MinCount} 筆）")
 
         except Exception as Error:
             print(f"[FaceRecognizer] _trainMatcher 失敗：{Error}")
