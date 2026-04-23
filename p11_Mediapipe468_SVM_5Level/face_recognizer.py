@@ -128,9 +128,13 @@ class FaceRecognizer:
             return False
 
     def AddSample(self, Frame: np.ndarray, PersonName: str,
-                  Retrain: bool = False) -> tuple:
+                  Retrain: bool = False, FrontalOnly: bool = False) -> tuple:
         """
         從 BGR 影像偵測人臉，萃取特徵向量並依姿態類別加入訓練樣本。
+
+        Parameters
+        ----------
+        FrontalOnly : True 時只接受正臉（POSE_FRONTAL）樣本，側臉偵測到但不加入。
 
         Returns
         -------
@@ -155,14 +159,18 @@ class FaceRecognizer:
                 if Vec is None:
                     continue
                 PoseCat, Yaw, Pitch = classifyPoseWithValues(Landmarks3D)
+                LastPoseCat = PoseCat
+                LastYaw     = Yaw
+                LastPitch   = Pitch
+
+                if FrontalOnly and PoseCat != POSE_FRONTAL:
+                    continue  # 非正臉不加入訓練集
+
                 if PoseCat not in self._Samples[PersonName]:
                     self._Samples[PersonName][PoseCat] = []
                 self._Samples[PersonName][PoseCat].append(Vec)
                 KeyPointsList.append(KeyPoints)
-                LastPoseCat = PoseCat
-                LastYaw     = Yaw
-                LastPitch   = Pitch
-                Added       = True
+                Added = True
 
             if Added and Retrain:
                 self._trainMatcher()

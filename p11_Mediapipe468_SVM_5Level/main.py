@@ -37,6 +37,9 @@ UI_REFRESH_MS         = 30     # webcam 畫面更新間隔（毫秒）
 LEARN_TICK_MS         = 500    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
 DETECT_TICK_MS        = 300    # 偵測時每次推論的間隔
 DETECT_NONE_DETECT_TARGET = 10  # 滑動窗口多數決所需幀數
+STABLE_FACE_IOU_THRESH    = 0.35 # 穩定臉追蹤：bounding box IoU 超過此值視為同一張臉
+STABLE_FACE_MAX_MISS      = 10   # 連續幾個 tick 偵測不到臉後清除穩定結果
+StealEatStep              = True # True = 啟用正臉穩定追蹤（非正統方案）；False = 停用
 
 
 # ==============================================================================
@@ -123,6 +126,10 @@ class MainApp(customtkinter.CTk):
 
         # Train Unknown 背景執行緒旗標
         self._TrainUnknownActive = False
+
+        # 穩定臉追蹤：正臉辨識成功後暫存，非正臉 frame 以 IoU 判斷是否沿用
+        self._StableFace     = None  # (bbox, name, conf) 最近一次正臉辨識結果
+        self._StableFaceMiss = 0     # 連續偵測不到臉的 tick 計數
 
         # 人臉偵測結果快取（供 _UpdateWebcamView 繪製框）
         self._LastDetections = []
@@ -455,6 +462,8 @@ class MainApp(customtkinter.CTk):
         if self._DetectNoneActive:
             self._DetectNoneActive  = False
             self._LastDetections    = []
+            self._StableFace        = None
+            self._StableFaceMiss    = 0
             self._BtnDetectNone.configure(text="Detect", state="normal")
             self._LblDetectName.configure(text="")
             self._LblPoseStatus.configure(text="姿態：---")
@@ -504,6 +513,42 @@ class MainApp(customtkinter.CTk):
         if not self._DetectNoneActive:
             return
 
+        if not Results:
+            if StealEatStep:
+                # 偵測不到臉：累計 miss，超過上限後清除穩定臉快取
+                self._StableFaceMiss += 1
+                if self._StableFaceMiss >= STABLE_FACE_MAX_MISS:
+                    self._StableFace     = None
+                    self._StableFaceMiss = 0
+            self._LastDetections = []
+            return
+
+        if StealEatStep:
+            # 對每個偵測結果套用穩定追蹤：正臉成功→更新快取；非正臉→嘗試沿用快取
+            StableResults = []
+            for R in Results:
+                Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch = R
+                from face_pose_classifier import POSE_FRONTAL as _PF
+                if PoseCat == _PF:
+                    if Name not in ("Unknown",):
+                        self._StableFace     = ((Top, Right, Bottom, Left), Name, Conf)
+                        self._StableFaceMiss = 0
+                    StableResults.append(R)
+                else:
+                    if self._StableFace is not None:
+                        StableBbox, StableName, StableConf = self._StableFace
+                        Iou = self._computeIoU((Top, Right, Bottom, Left), StableBbox)
+                        if Iou >= STABLE_FACE_IOU_THRESH:
+                            StableResults.append(
+                                (Top, Right, Bottom, Left, StableName, StableConf,
+                                 PoseCat, Yaw, Pitch)
+                            )
+                        else:
+                            StableResults.append(R)
+                    else:
+                        StableResults.append(R)
+            Results = StableResults
+
         if Results:
             self._LastDetections = Results
             BestResult = max(Results, key=lambda R: R[5])
@@ -536,6 +581,23 @@ class MainApp(customtkinter.CTk):
                 )
         else:
             self._LastDetections = []
+
+    @staticmethod
+    def _computeIoU(BboxA: tuple, BboxB: tuple) -> float:
+        """計算兩個 bounding box 的 IoU（格式：Top, Right, Bottom, Left）。"""
+        TopA, RightA, BottomA, LeftA = BboxA
+        TopB, RightB, BottomB, LeftB = BboxB
+        InterTop    = max(TopA, TopB)
+        InterLeft   = max(LeftA, LeftB)
+        InterBottom = min(BottomA, BottomB)
+        InterRight  = min(RightA, RightB)
+        InterW = max(0, InterRight  - InterLeft)
+        InterH = max(0, InterBottom - InterTop)
+        InterArea = InterW * InterH
+        AreaA     = max(0, RightA - LeftA) * max(0, BottomA - TopA)
+        AreaB     = max(0, RightB - LeftB) * max(0, BottomB - TopB)
+        UnionArea = AreaA + AreaB - InterArea
+        return InterArea / UnionArea if UnionArea > 0 else 0.0
 
     # ──────────────────────────────────────────────────────────────────────────
     # 學習功能
@@ -743,7 +805,7 @@ class MainApp(customtkinter.CTk):
                     def Worker():
                         try:
                             Added, KP, PoseCat, Yaw, Pitch = self._Recognizer.AddSample(
-                                FrameCopy, PersonName, Retrain=False
+                                FrameCopy, PersonName, Retrain=False, FrontalOnly=True
                             )
                             self.after(0, lambda A=Added, K=KP, P=PoseCat, Y=Yaw, Pi=Pitch:
                                        self._OnLearnSampleAdded(A, K, P, Y, Pi))
