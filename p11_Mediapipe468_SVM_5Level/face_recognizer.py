@@ -172,6 +172,75 @@ class FaceRecognizer:
             print(f"[FaceRecognizer] AddSample 失敗：{Error}")
             return False, [], POSE_FRONTAL, 0.0, 0.0
 
+    def AddSamplesFromFolder(self, FolderPath: str, PersonName: str,
+                             OnProgress=None) -> tuple:
+        """
+        從目錄中讀取所有圖檔，萃取臉部特徵加入指定人物的訓練樣本。
+        每張圖只取第一張偵測到的臉。
+
+        Parameters
+        ----------
+        FolderPath  : 圖檔目錄路徑
+        PersonName  : 人物名稱（通常為 UNKNOWN_CLASS = "Unknown"）
+        OnProgress  : 可選 callback(FileName, SuccessCount, FailCount, Total)
+
+        Returns
+        -------
+        (SuccessCount, FailCount, TotalFiles)
+        """
+        try:
+            import cv2 as _cv2
+            ImageExts  = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
+            ImageFiles = sorted([
+                f for f in os.listdir(FolderPath)
+                if os.path.splitext(f.lower())[1] in ImageExts
+            ])
+            TotalFiles = len(ImageFiles)
+            if TotalFiles == 0:
+                return 0, 0, 0
+
+            if PersonName not in self._Samples:
+                self._Samples[PersonName] = {}
+
+            SuccessCount = 0
+            FailCount    = 0
+
+            for FileName in ImageFiles:
+                try:
+                    FilePath = os.path.join(FolderPath, FileName)
+                    Frame    = _cv2.imread(FilePath)
+                    if Frame is None:
+                        FailCount += 1
+                    else:
+                        Detections = self._Detector.detect(Frame)
+                        FaceAdded  = False
+                        for _, Landmarks3D, _ in Detections:
+                            Vec = extractFeatures3D(Landmarks3D)
+                            if Vec is None:
+                                continue
+                            PoseCat, _, _ = classifyPoseWithValues(Landmarks3D)
+                            if PoseCat not in self._Samples[PersonName]:
+                                self._Samples[PersonName][PoseCat] = []
+                            self._Samples[PersonName][PoseCat].append(Vec)
+                            FaceAdded = True
+                            break  # 每張圖只取第一張臉
+                        if FaceAdded:
+                            SuccessCount += 1
+                        else:
+                            FailCount += 1
+                except Exception as FileError:
+                    print(f"[FaceRecognizer] 處理圖檔失敗 {FileName}：{FileError}")
+                    FailCount += 1
+
+                if OnProgress:
+                    OnProgress(FileName, SuccessCount, FailCount, TotalFiles)
+
+            return SuccessCount, FailCount, TotalFiles
+
+        except Exception as Error:
+            print(f"[FaceRecognizer] AddSamplesFromFolder 失敗：{Error}")
+            return 0, 0, 0
+
     def FinishLearning(self) -> None:
         """批次學習結束後呼叫，執行一次分類器重訓。"""
         try:

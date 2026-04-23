@@ -22,6 +22,7 @@ import numpy as np
 import customtkinter
 from PIL import Image
 import tkinter.messagebox as MsgBox
+import tkinter.filedialog as FileDialog
 
 from face_recognizer import FaceRecognizer, UNKNOWN_CLASS
 from face_pose_classifier import POSE_NAMES, POSE_NAMES_EN
@@ -120,6 +121,9 @@ class MainApp(customtkinter.CTk):
         # 推論執行緒防重入旗標
         self._InferenceActive = False
 
+        # Train Unknown 背景執行緒旗標
+        self._TrainUnknownActive = False
+
         # 人臉偵測結果快取（供 _UpdateWebcamView 繪製框）
         self._LastDetections = []
 
@@ -206,6 +210,13 @@ class MainApp(customtkinter.CTk):
             command=self._OnBtnRemove
         )
         self._BtnRemove.pack(side="left", padx=(5, 5), pady=5)
+
+        self._BtnTrainUnknown = customtkinter.CTkButton(
+            Row1Top, text="Train Unknown", width=130,
+            fg_color="#4A4A00", hover_color="#6B6B00",
+            command=self._OnBtnTrainUnknown
+        )
+        self._BtnTrainUnknown.pack(side="left", padx=(5, 5), pady=5)
 
         # 學習進度區（預設隱藏，學習中顯示）
         self._Row1Bot = customtkinter.CTkFrame(Row1)
@@ -569,6 +580,64 @@ class MainApp(customtkinter.CTk):
             self._UpdateSummary()
         else:
             MsgBox.showerror("移除失敗", f"移除 [{PersonName}] 時發生錯誤，請查看 console 輸出。")
+
+    def _OnBtnTrainUnknown(self) -> None:
+        """Train Unknown 按鈕點擊：選擇目錄後對目錄內所有圖檔訓練 Unknown 類別。"""
+        if self._TrainUnknownActive:
+            return
+        if self._LearnActive:
+            MsgBox.showwarning("訓練中", "請先等待目前學習完成再執行 Train Unknown。")
+            return
+
+        FolderPath = FileDialog.askdirectory(title="選擇 Unknown 訓練圖片目錄")
+        if not FolderPath:
+            return
+
+        self._TrainUnknownActive = True
+        self._BtnTrainUnknown.configure(state="disabled", text="訓練中...")
+        self._AppendLog(f"Train Unknown：開始讀取目錄 {FolderPath}")
+
+        def Worker():
+            try:
+                def OnProgress(FileName, SuccessCount, FailCount, Total):
+                    if SuccessCount % 10 == 0 and SuccessCount > 0:
+                        self.after(0, lambda S=SuccessCount, F=FailCount, T=Total:
+                                   self._AppendLog(
+                                       f"Train Unknown 進度：{S+F}/{T}  成功:{S}  失敗:{F}"
+                                   ))
+
+                SuccessCount, FailCount, TotalFiles = \
+                    self._Recognizer.AddSamplesFromFolder(
+                        FolderPath, "Unknown", OnProgress=OnProgress
+                    )
+
+                self._Recognizer.FinishLearning()
+                SaveOk = self._Recognizer.SaveModel()
+
+                def Done(S=SuccessCount, F=FailCount, T=TotalFiles, Ok=SaveOk):
+                    self._TrainUnknownActive = False
+                    self._BtnTrainUnknown.configure(state="normal", text="Train Unknown")
+                    Msg = (
+                        f"Train Unknown 完成！\n"
+                        f"共處理 {T} 張圖片\n"
+                        f"成功萃取臉部特徵：{S} 張\n"
+                        f"未偵測到臉或失敗：{F} 張\n"
+                        f"模型{'儲存成功' if Ok else '儲存失敗，請查看 console'}"
+                    )
+                    MsgBox.showinfo("Train Unknown 完成", Msg)
+                    self._UpdateSummary()
+
+                self.after(0, Done)
+
+            except Exception as Error:
+                print(f"[MainApp] Train Unknown 失敗：{Error}")
+                self.after(0, lambda: (
+                    setattr(self, '_TrainUnknownActive', False),
+                    self._BtnTrainUnknown.configure(state="normal", text="Train Unknown"),
+                    self._AppendLog(f"Train Unknown 失敗：{Error}")
+                ))
+
+        threading.Thread(target=Worker, daemon=True).start()
 
     def _StartLearning(self, PersonName: str) -> None:
         """開始學習模式。"""
