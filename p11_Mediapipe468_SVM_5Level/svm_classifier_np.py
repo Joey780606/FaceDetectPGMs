@@ -40,9 +40,8 @@ SVM_MARGIN_THRESH = 0.50
 COSINE_VERIFY_THRESH = -1.0   # 預設關閉（-1.0 表示永不觸發）
 
 # KNN 驗證參數
-KNN_K = 5              # 比對最近 K 個訓練樣本
-#KNN_THRESH_FACTOR = 2.0  # 閾值 = within-class KNN 平均距離 + N × 標準差
-KNN_THRESH_FACTOR = 1.35
+KNN_K          = 5    # 比對最近 K 個訓練樣本
+KNN_PERCENTILE = 80   # 閾值 = 訓練樣本 KNN 距離的第 P 百分位數（降低 → 更嚴格）
 
 # SGD 超參數（多人模式）
 SGD_N_EPOCHS      = 200
@@ -145,11 +144,10 @@ class SvmClassifier:
                 # 儲存訓練向量並自動校準 KNN 閾值
                 self._ClassVecs[Name] = ClassVecs
                 KnnDists = self._computeWithinClassKnnDists(ClassVecs)
-                MeanD    = float(np.mean(KnnDists))
-                StdD     = float(np.std(KnnDists))
-                self._ClassKnnThresh[Name] = MeanD + KNN_THRESH_FACTOR * StdD
-                print(f"  KNN閾值[{Name}]: {self._ClassKnnThresh[Name]:.3f}"
-                      f"  (mean={MeanD:.3f} std={StdD:.3f})")
+                Thresh   = float(np.percentile(KnnDists, KNN_PERCENTILE))
+                self._ClassKnnThresh[Name] = Thresh
+                print(f"  KNN閾值[{Name}]: {Thresh:.3f}"
+                      f"  (p{KNN_PERCENTILE} of {len(KnnDists)} 筆距離)")
 
             NClasses = len(self._ClassNames)
             D        = Xnorm.shape[1]

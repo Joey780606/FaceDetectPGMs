@@ -310,17 +310,6 @@ class FaceRecognizer:
                 self._IsTrained  = False
                 return
 
-            # 自動 downsample：所有類別降採樣至最少類別的樣本數，避免類別不平衡
-            MinCount = min(len(v) for v in AllSamples.values())
-            BalancedSamples = {}
-            for Name, Vecs in AllSamples.items():
-                if len(Vecs) > MinCount:
-                    Indices = np.random.choice(len(Vecs), MinCount, replace=False)
-                    BalancedSamples[Name] = [Vecs[i] for i in Indices]
-                else:
-                    BalancedSamples[Name] = Vecs
-            AllSamples = BalancedSamples
-
             Clf = SvmClassifier(Threshold=self._Threshold,
                                MarginThresh=self._MarginThresh,
                                Label="全角度")
@@ -329,9 +318,10 @@ class FaceRecognizer:
             self._IsTrained  = Clf.IsTrained
 
             if Clf.IsTrained:
-                TotalVecs = sum(len(v) for v in AllSamples.values())
+                TotalVecs  = sum(len(V) for V in AllSamples.values())
+                CountsInfo = "  ".join(f"{N}:{len(V)}" for N, V in AllSamples.items())
                 print(f"[FaceRecognizer] 全角度 SVM 訓練完成："
-                      f"{len(AllSamples)}人 / {TotalVecs}筆（每類 {MinCount} 筆）")
+                      f"{len(AllSamples)}人 / {TotalVecs}筆  [{CountsInfo}]")
 
         except Exception as Error:
             print(f"[FaceRecognizer] _trainMatcher 失敗：{Error}")
