@@ -212,7 +212,7 @@ class MainApp(customtkinter.CTk):
         self._BtnRemove.pack(side="left", padx=(5, 5), pady=5)
 
         self._BtnTrainUnknown = customtkinter.CTkButton(
-            Row1Top, text="Train Unknown", width=130,
+            Row1Top, text="Train Unknown.", width=130,
             fg_color="#4A4A00", hover_color="#6B6B00",
             command=self._OnBtnTrainUnknown
         )
@@ -608,7 +608,7 @@ class MainApp(customtkinter.CTk):
 
                 SuccessCount, FailCount, TotalFiles = \
                     self._Recognizer.AddSamplesFromFolder(
-                        FolderPath, "Unknown", OnProgress=OnProgress
+                        FolderPath, UNKNOWN_CLASS, OnProgress=OnProgress
                     )
 
                 self._Recognizer.FinishLearning()

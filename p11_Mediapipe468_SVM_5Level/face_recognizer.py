@@ -27,8 +27,8 @@ from svm_classifier_np import SvmClassifier, SVM_UNKNOWN_THRESH, SVM_MARGIN_THRE
 DEFAULT_MODEL_PATH = "face_model.npz"
 N_POSES = 5
 
-# 訓練用陌生人類別的內部名稱（預測到此類別時對外回傳 "Unknown"）
-UNKNOWN_CLASS = "Unknown"
+# 訓練用陌生人類別的內部名稱（末尾加句點以區別 sigmoid/margin 判出的 "Unknown"）
+UNKNOWN_CLASS = "Unknown."
 
 
 class FaceRecognizer:
@@ -285,8 +285,6 @@ class FaceRecognizer:
                 )
                 Name = Names[0]
                 Conf = float(Confs[0])
-                if Name == UNKNOWN_CLASS:
-                    Name = "Unknown"
 
                 Top, Right, Bottom, Left = BoundingBox
                 Results.append((Top, Right, Bottom, Left,
