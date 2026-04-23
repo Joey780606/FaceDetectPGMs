@@ -30,7 +30,7 @@ svm_classifier_np.py
 import numpy as np
 
 # 信心度閾值預設值（sigmoid 值，低於此值 → Unknown）
-SVM_UNKNOWN_THRESH = 0.60
+SVM_UNKNOWN_THRESH = 0.20
 
 # 分差閾值預設值（多人模式：top-1 與 top-2 原始分差低於此值 → Unknown）
 # 已知者：SVM 對最佳類別信心高，分差大；陌生人：各類分數相近，分差小
