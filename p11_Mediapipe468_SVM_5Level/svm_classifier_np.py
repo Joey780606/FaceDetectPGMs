@@ -40,8 +40,9 @@ SVM_MARGIN_THRESH = 0.50
 COSINE_VERIFY_THRESH = -1.0   # 預設關閉（-1.0 表示永不觸發）
 
 # KNN 驗證參數
-KNN_K          = 5    # 比對最近 K 個訓練樣本
-KNN_PERCENTILE = 80   # 閾值 = 訓練樣本 KNN 距離的第 P 百分位數（降低 → 更嚴格）
+KNN_K              = 5     # 比對最近 K 個訓練樣本
+KNN_PERCENTILE     = 80    # 閾值 = 訓練樣本 KNN 距離的第 P 百分位數（降低 → 更嚴格）
+KNN_VERIFY_ENABLED = False # True = 開啟 KNN 驗證；False = 關閉（純 sigmoid 模式）
 
 # SGD 超參數（多人模式）
 SGD_N_EPOCHS      = 200
@@ -270,7 +271,7 @@ class SvmClassifier:
                     print(f"  cos={VerifyCos:.3f}", end="")
 
             # ── KNN 驗證：確認 query 是否落在該人訓練樣本的鄰近範圍內 ──────────
-            if Name != "Unknown" and Name in self._ClassVecs:
+            if KNN_VERIFY_ENABLED and Name != "Unknown" and Name in self._ClassVecs:
                 KnnDist   = self._knnVerify(xn, Name)
                 KnnThresh = self._ClassKnnThresh.get(Name, float('inf'))
                 if KnnDist > KnnThresh:
