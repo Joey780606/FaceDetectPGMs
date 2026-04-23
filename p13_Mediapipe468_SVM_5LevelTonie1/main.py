@@ -155,6 +155,12 @@ class MainApp(customtkinter.CTk):
         )
         self._LblDetectName.pack(side="left", padx=5, pady=5)
 
+        self._LblCurrentPose = customtkinter.CTkLabel(
+            Row0Top, text="", font=customtkinter.CTkFont(size=13),
+            text_color="gray"
+        )
+        self._LblCurrentPose.pack(side="right", padx=(5, 10), pady=5)
+
         # --- Row 1：學習功能列 ---
         Row1 = customtkinter.CTkFrame(self)
         Row1.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
@@ -281,7 +287,7 @@ class MainApp(customtkinter.CTk):
     def _DrawDetections(self, Frame: np.ndarray, Detections: list) -> np.ndarray:
         """在 Frame 上繪製人臉偵測框與姓名標籤。已知人物用綠框，Unknown 用紅框。"""
         DrawFrame = Frame.copy()
-        for Top, Right, Bottom, Left, Name, Confidence in Detections:
+        for Top, Right, Bottom, Left, Name, Confidence, *_ in Detections:
             Color = (0, 255, 0) if Name != "Unknown" else (0, 0, 255)
             cv2.rectangle(DrawFrame, (Left, Top), (Right, Bottom), Color, 2)
             Label = f"{Name} ({Confidence:.2f})" if Name != "Unknown" else "Unknown"
@@ -320,6 +326,7 @@ class MainApp(customtkinter.CTk):
             self._LastDetections    = []
             self._BtnDetectNone.configure(text="Detect", state="normal")
             self._LblDetectName.configure(text="")
+            self._LblCurrentPose.configure(text="")
             return
 
         if not self._Recognizer.CanDetect():
@@ -367,7 +374,11 @@ class MainApp(customtkinter.CTk):
         if Results:
             self._LastDetections = Results
             BestResult = max(Results, key=lambda R: R[5])
-            Name = BestResult[4]
+            Name     = BestResult[4]
+            PoseName = BestResult[6] if len(BestResult) > 6 else ""
+
+            # 即時顯示目前象限
+            self._LblCurrentPose.configure(text=f"象限：{PoseName}")
 
             self._DetectNoneDtNames.append(Name)
             if len(self._DetectNoneDtNames) > DETECT_NONE_DETECT_TARGET:
@@ -385,6 +396,7 @@ class MainApp(customtkinter.CTk):
                 )
         else:
             self._LastDetections = []
+            self._LblCurrentPose.configure(text="")
 
     # --------------------------------------------------------------------------
     # 學習功能

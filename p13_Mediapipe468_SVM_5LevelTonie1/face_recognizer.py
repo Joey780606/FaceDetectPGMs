@@ -147,7 +147,7 @@ class FaceRecognizer:
 
             if not PoseSVMs:
                 print(f"[Debug] 象限={POSE_NAMES[PoseIdx]} | 無任何已訓練模型 → Unknown")
-                return [(Top, Right, Bottom, Left, "Unknown", 0.0)]
+                return [(Top, Right, Bottom, Left, "Unknown", 0.0, POSE_NAMES[PoseIdx])]
 
             # 計算各人 decision_function 分數
             Scores = {}
@@ -167,9 +167,9 @@ class FaceRecognizer:
             print(f"[Debug] 象限={POSE_NAMES[PoseIdx]}{FallbackNote} | {ScoreStr} | → {Result}")
 
             if BestScore > UNKNOWN_THRESHOLD:
-                return [(Top, Right, Bottom, Left, BestName, BestScore)]
+                return [(Top, Right, Bottom, Left, BestName, BestScore, POSE_NAMES[PoseIdx])]
             else:
-                return [(Top, Right, Bottom, Left, "Unknown", 0.0)]
+                return [(Top, Right, Bottom, Left, "Unknown", 0.0, POSE_NAMES[PoseIdx])]
 
         except Exception as Error:
             print(f"[FaceRecognizer] Predict 失敗：{Error}")

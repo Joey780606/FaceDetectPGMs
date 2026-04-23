@@ -1,4 +1,5 @@
 [程式記錄區]
+[程式了解區] (程式重要)
 ====
  ☐ Unknown策略
 
@@ -57,3 +58,254 @@ Unknown 偵測策略要如何處理？
   x），所以不需要額外基準值；Pitch 因為正臉有固定偏差，才改用臉高比例讓它居中。
 
   如果您希望兩者單位一致，也可以把 Yaw 改成同樣的臉高比例寫法，但目前這樣功能上是正確的。
+  
+====
+[程式記錄區]
+
+
+[程式了解區]
+<<1.訓練時,接收臉部468個點原始資料的程式在什麼位置?>>
+2.訓練時對468個點做歸一化的程式在什麼位置?歸一化後存在那個變數裡,真的是存468個點*3的位置嗎?
+ 是存在 face_recognizer.py 的 _TrainData
+<<3.是蒐集完訓練資料後再開始做訓練對嗎?訓練的起點在那裡?>>
+ 訓練的起點是在: FinishLearning
+4.OneClassSVM 是用在 
+ face_recognizer.py 的 def FinishLearning(self) -> None:
+5.<<訓練後SVM是不是會存成一個函式?以供訓練時帶入函式就可知是不是某人?那個函式是存在那裡?>>
+6. <<訓練後存face_model.npz的內容是什麼?你說_TrainData的資料也會存到face_model.npz裡?這好像是訓練時的x,y,z歸一化的資料,為什麼要儲存他?>>
+7. <<每個已訓練的人,各象限資料,儲存的架構>>
+8. <<請說明預測時的做法>>
+
+<<1.訓練時,接收臉部468個點原始資料的程式在什麼位置?>>
+● 在 face_recognizer.py 的 _extractLandmarks() 方法裡，這一行：
+
+  Lms = DetResult.face_landmarks[0]  # 第一張臉，共 468 個
+
+  完整的呼叫鏈是這樣的：
+
+  main.py
+    _LearningTick()          ← 每 500ms 觸發一次
+      → AddSample(Frame, Name)
+
+  face_recognizer.py
+    AddSample()
+      → _extractLandmarks(Frame)   ← 在這裡跑 MediaPipe,計算 IOD、眼中點,建立 1404-dim 特徵向量,判斷象限 (程式重要)
+          MpImage   = mp.Image(...)
+          DetResult = self._Detector.detect(MpImage)   ← MediaPipe 偵測
+          Lms = DetResult.face_landmarks[0]            ← 拿到 468 個點（NormalizedLandmark）
+		  
+   ===
+
+  拿到 Lms 之後，緊接著就在同一個方法裡做三件事：
+
+  ┌──────────────────────────┬─────────────────────────────────────┬───────────────────┐
+  │           步驟           │             程式碼位置              │       說明        │
+  ├──────────────────────────┼─────────────────────────────────────┼───────────────────┤
+  │ ① 計算 IOD、眼中點       │ _extractLandmarks() 約 245~260 行   │ 準備歸一化基準    │
+  ├──────────────────────────┼─────────────────────────────────────┼───────────────────┤
+  │ ② 建立 1404-dim 特徵向量 │ for Lm in Lms: Features.extend(...) │ IOD 歸一化        │
+  ├──────────────────────────┼─────────────────────────────────────┼───────────────────┤
+  │ ③ 判斷象限 (Yaw/Pitch)   │ _classifyPose(Yaw, Pitch)           │ 決定存哪個 bucket │
+  └──────────────────────────┴─────────────────────────────────────┴───────────────────┘
+
+  最後 AddSample() 收到回傳結果，把特徵向量存進 _TrainData[PoseIdx][Name]。
+  
+<<3.是蒐集完訓練資料後再開始做訓練對嗎?訓練的起點在那裡?>>
+● 對，是蒐集完後才一次訓練。流程如下：
+
+  五象限各達 20 張
+      → main.py: _OnLearnSampleAdded() 發現全滿
+          → _StopLearning()
+              → self._Recognizer.FinishLearning()   ← 訓練起始點
+                  → SaveModel()
+
+  訓練起始點在 face_recognizer.py 的 FinishLearning()：
+
+  def FinishLearning(self) -> None:
+      for PoseIdx in range(5):                          # 逐一處理五個象限
+          for Name, Features in self._TrainData[PoseIdx].items():  # 逐人
+              if len(Features) >= MIN_TRAIN_SAMPLES:    # 至少 5 張才訓練
+                  Ocsvm = OneClassSVM(kernel='rbf', nu=0.1)
+                  Ocsvm.fit(np.array(Features))         # ← 實際訓練發生在這裡
+                  self._SVMs[PoseIdx][Name] = Ocsvm     # 存起來備用
+
+  所以整個訓練期間，_TrainData 只是在累積原始特徵向量，完全不做任何計算。等到 FinishLearning()
+  被呼叫，才把所有資料一次餵給 sklearn 的 OneClassSVM.fit() 訓練。
+  
+<<訓練後SVM是不是會存成一個函式?以供訓練時帶入函式就可知是不是某人?那個函式是存在那裡?>>
+● 對，訓練後 SVM 會變成一個「已學好邊界的物件」。用您說的「函式」來理解非常正確。
+
+  ---
+  訓練後存在哪裡？
+
+  存在記憶體的 self._SVMs 這個 dict 裡：
+
+  self._SVMs = {
+      0: {"Joey": <OneClassSVM物件>, "Ben": <OneClassSVM物件>},  # 正臉
+      1: {"Joey": <OneClassSVM物件>, "Ben": <OneClassSVM物件>},  # 左上
+      2: {...},  # 右上
+      3: {...},  # 左下
+      4: {...},  # 右下
+  }
+
+  每個 <OneClassSVM物件> 內部就記住了「這個人的臉長什麼樣的邊界」。
+
+  ---
+  推論時怎麼使用？
+
+  在 Predict() 裡，帶入新的特徵向量呼叫 decision_function()：
+
+  Score = Ocsvm.decision_function([Features])[0]
+  # Score > 0 → 是這個人（inlier）
+  # Score < 0 → 不是（outlier / Unknown）
+
+  ---
+  程式結束後怎麼辦？
+
+  記憶體裡的 self._SVMs 會消失，所以 SaveModel() 用 joblib 把整個 dict 序列化存到硬碟：
+
+  face_model.npz   ← 裡面包含 _TrainData + _SVMs 全部內容
+
+  下次啟動時 LoadModel() 把它載回記憶體，就能繼續使用。
+  
+<<每個已訓練的人,各象限資料,儲存的架構>>
+  存在記憶體的 self._SVMs 這個 dict 裡：
+
+  self._SVMs = {
+      0: {"Joey": <OneClassSVM物件>, "Ben": <OneClassSVM物件>},  # 正臉
+      1: {"Joey": <OneClassSVM物件>, "Ben": <OneClassSVM物件>},  # 左上
+      2: {...},  # 右上
+      3: {...},  # 左下
+      4: {...},  # 右下
+  }
+  
+<<訓練後存face_model.npz的內容是什麼?你說_TrainData的資料也會存到face_model.npz裡?這好像是訓練時的x,y,z歸一化的資料,為什麼要儲存他?>>
+● 非常好的問題。_TrainData（原始 x,y,z 歸一化資料）確實不是推論所需，但存下來有幾個實際用途：
+
+  ---
+  ① 支援跨次訓練補齊象限
+
+  AddSample() 裡有這個檢查：
+  CurrentCount = len(self._TrainData[PoseIdx].get(Name, []))
+  if CurrentCount >= POSE_TARGET:
+      return False, KeyPoints  # 此象限已滿，跳過
+
+  如果不存 _TrainData，下次開程式後這個計數歸零，使用者會以為象限是空的，重複收集覆蓋舊資料。
+
+  ---
+  ② Remove 後重新訓練需要原始資料
+
+  若移除某人再重新 FinishLearning()，需要原始特徵向量才能重跑 .fit()。
+
+  ---
+  ③ 顯示 Log 摘要（GetSampleCounts）
+
+  "學習資料：Joey: 100 張　|　Ben: 100 張"
+  這個數字來自 _TrainData，不是 _SVMs。
+
+  ---
+  您的觀察是對的，如果只要 Detect，其實只需要存 _SVMs。
+
+  若想節省空間，可以這樣改：訓練完成後清空 _TrainData 的原始向量，只保留每象限的幀數計數。不過目前資料量不大（5 象限
+  × 20 張 × 1404 維 float32 ≈ 每人約 550KB），暫時保留是可接受的。
+  
+● SaveModel() 存的是這個 Python dict：
+
+  {
+      'TrainData': self._TrainData,
+      'SVMs':      self._SVMs
+  }
+
+  展開來看結構：
+
+  face_model.npz
+  │
+  ├── TrainData
+  │   ├── 象限 0（正臉）
+  │   │   ├── "Joey" → [ [1404個float], [1404個float], ... ]  ← 20筆
+  │   │   └── "Ben"  → [ [1404個float], [1404個float], ... ]  ← 20筆
+  │   ├── 象限 1（左上）  → 同上結構
+  │   ├── 象限 2（右上）  → 同上結構
+  │   ├── 象限 3（左下）  → 同上結構
+  │   └── 象限 4（右下）  → 同上結構
+  │
+  └── SVMs
+      ├── 象限 0（正臉）
+      │   ├── "Joey" → <OneClassSVM 物件>  ← 訓練好的邊界函式
+      │   └── "Ben"  → <OneClassSVM 物件>
+      ├── 象限 1（左上）  → 同上結構
+      ├── 象限 2（右上）  → 同上結構
+      ├── 象限 3（左下）  → 同上結構
+      └── 象限 4（右下）  → 同上結構
+
+  大小估算（兩人為例）：
+
+  ┌───────────┬────────────────────────────────────┬───────────┐
+  │   內容    │                計算                │   大小    │
+  ├───────────┼────────────────────────────────────┼───────────┤
+  │ TrainData │ 2人 × 5象限 × 20筆 × 1404個float32 │ ≈ 1.1 MB  │
+  ├───────────┼────────────────────────────────────┼───────────┤
+  │ SVMs      │ 2人 × 5個 OneClassSVM 物件         │ ≈ 幾十 KB │
+  └───────────┴────────────────────────────────────┴───────────┘
+
+  Detect 時實際用到的只有 SVMs 那半邊，TrainData 是備用的（如前面說的，供補訓和計數用）。
+  
+<<請說明預測時的做法>>
+● 預測的完整流程：
+
+  ---
+  ① 觸發點（main.py）
+
+  按下 Detect 後，每 300ms 執行一次 _DetectNoneTick()，在背景執行緒呼叫：
+  Predict(Frame)
+
+  ---
+  ② Predict() 做的五個步驟（face_recognizer.py）
+
+  新的一幀影像
+      │
+      ▼
+  Step 1：_extractLandmarks(Frame)
+      - MediaPipe 偵測，取得 468 個點
+      - 計算 IOD、眼中點
+      - 建立 1404-dim 特徵向量（IOD 歸一化）
+      - 計算 Yaw / Pitch
+      │
+      ▼
+  Step 2：_classifyPose(Yaw, Pitch)
+      - 判斷這幀臉是哪個象限（0~4）
+      │
+      ▼
+  Step 3：取出對應象限的 SVMs
+      PoseSVMs = self._SVMs[PoseIdx]
+      例如 PoseIdx=0（正臉）→ {"Joey": SVM, "Ben": SVM}
+      （若該象限沒資料，fallback 到任一有資料的象限）
+      │
+      ▼
+  Step 4：每個人各算一次分數
+      for 每個人:
+          Score = Ocsvm.decision_function([Features])[0]
+      → Scores = {"Joey": +1.23, "Ben": -0.45}
+      │
+      ▼
+  Step 5：判斷結果
+      BestName  = 分數最高的人（Joey）
+      BestScore = +1.23
+
+      BestScore > 0.0 → 回傳 Joey
+      BestScore ≤ 0.0 → 回傳 Unknown
+
+  ---
+  ③ 多數決（main.py）
+
+  單幀結果不直接顯示，累積 5 次後取多數決：
+
+  第1幀 → Joey
+  第2幀 → Joey
+  第3幀 → Unknown
+  第4幀 → Joey
+  第5幀 → Joey
+          ↓
+  多數決 → Joey（4:1）→ 顯示 "Hi, Joey 您好"
+
+  這樣做是為了避免單幀誤判影響顯示結果。
