@@ -22,7 +22,8 @@ from mp_face_landmarker import MpFaceLandmarker
 from face_feature_3d import extractFeatures3D
 from face_pose_classifier import (classifyPoseWithValues,
                                   POSE_FRONTAL, POSE_NAMES)
-from svm_classifier_np import SvmClassifier, SVM_UNKNOWN_THRESH, SVM_MARGIN_THRESH
+from svm_classifier_np import (SvmClassifier, SVM_UNKNOWN_THRESH,
+                               SVM_MARGIN_THRESH, COSINE_VERIFY_THRESH)
 
 DEFAULT_MODEL_PATH = "face_model.npz"
 N_POSES = 5
@@ -46,9 +47,10 @@ class FaceRecognizer:
         # 單一分類器
         self._Classifier = None
         # 共用閾值
-        self._Threshold    = SVM_UNKNOWN_THRESH
-        self._MarginThresh = SVM_MARGIN_THRESH
-        self._IsTrained    = False
+        self._Threshold          = SVM_UNKNOWN_THRESH
+        self._MarginThresh       = SVM_MARGIN_THRESH
+        self._CosineVerifyThresh = COSINE_VERIFY_THRESH
+        self._IsTrained          = False
 
     # ──────────────────────────────────────────────────────────────────────────
     # 公開 API
@@ -387,8 +389,9 @@ class FaceRecognizer:
         return self._IsTrained
 
     def SetThresholds(self, CosineThresh: float = None,
-                      MarginThresh: float = None) -> None:
-        """動態更新分類器的信心度閾值與分差閾值，無需重訓。"""
+                      MarginThresh: float = None,
+                      CosineVerifyThresh: float = None) -> None:
+        """動態更新分類器的信心度閾值、分差閾值與餘弦驗證閾值，無需重訓。"""
         try:
             if CosineThresh is not None:
                 self._Threshold = CosineThresh
@@ -398,6 +401,10 @@ class FaceRecognizer:
                 self._MarginThresh = MarginThresh
                 if self._Classifier is not None:
                     self._Classifier._MarginThresh = MarginThresh
+            if CosineVerifyThresh is not None:
+                self._CosineVerifyThresh = CosineVerifyThresh
+                if self._Classifier is not None:
+                    self._Classifier._CosineVerifyThresh = CosineVerifyThresh
         except Exception as Error:
             print(f"[FaceRecognizer] SetThresholds 失敗：{Error}")
 
@@ -467,6 +474,7 @@ class FaceRecognizer:
 
             Clf = SvmClassifier(Threshold=self._Threshold,
                                MarginThresh=self._MarginThresh,
+                               CosineVerifyThresh=self._CosineVerifyThresh,
                                Label="全角度")
             Clf.fit(AllSamples)
             self._Classifier = Clf

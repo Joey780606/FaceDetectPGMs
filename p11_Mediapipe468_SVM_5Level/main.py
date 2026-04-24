@@ -26,7 +26,7 @@ import tkinter.filedialog as FileDialog
 
 from face_recognizer import FaceRecognizer, UNKNOWN_CLASS
 from face_pose_classifier import POSE_NAMES, POSE_NAMES_EN
-from svm_classifier_np import SVM_UNKNOWN_THRESH, SVM_MARGIN_THRESH
+from svm_classifier_np import SVM_UNKNOWN_THRESH, SVM_MARGIN_THRESH, COSINE_VERIFY_THRESH
 
 # ── 應用程式常數 ──────────────────────────────────────────────────────────────
 LEARN_TARGET_FRAMES   = 100    # 學習模式目標收集 frame 數（分5類需較多樣本）
@@ -309,6 +309,22 @@ class MainApp(customtkinter.CTk):
             RowThresh, text=f"{SVM_MARGIN_THRESH:.2f}", width=44, anchor="e"
         )
         self._LblMarginVal.grid(row=1, column=2, padx=(4, 8), pady=8)
+
+        customtkinter.CTkLabel(RowThresh, text="餘弦驗證閾值(Cos)", anchor="w").grid(
+            row=2, column=0, sticky="w", padx=(8, 4), pady=8
+        )
+        self._SldCosineVerify = customtkinter.CTkSlider(
+            RowThresh, from_=-1.0, to=0.8,
+            number_of_steps=180,
+            command=self._OnCosineVerifyThreshChanged
+        )
+        self._SldCosineVerify.set(COSINE_VERIFY_THRESH)
+        self._SldCosineVerify.grid(row=2, column=1, sticky="ew", padx=4, pady=8)
+        InitCosVerifyText = "關閉" if COSINE_VERIFY_THRESH <= -0.99 else f"{COSINE_VERIFY_THRESH:.2f}"
+        self._LblCosineVerifyVal = customtkinter.CTkLabel(
+            RowThresh, text=InitCosVerifyText, width=44, anchor="e"
+        )
+        self._LblCosineVerifyVal.grid(row=2, column=2, padx=(4, 8), pady=8)
 
         # ── Row 3：Webcam 畫面 ───────────────────────────────────────────────
         Row2 = customtkinter.CTkFrame(self)
@@ -935,6 +951,14 @@ class MainApp(customtkinter.CTk):
         self._LblMarginVal.configure(text=f"{Value:.2f}")
         if self._Recognizer is not None:
             self._Recognizer.SetThresholds(MarginThresh=Value)
+
+    def _OnCosineVerifyThreshChanged(self, Value: float) -> None:
+        """餘弦驗證閾值 Slider 拖動時，即時更新顯示值與辨識器閾值。
+        -1.0 表示關閉驗證；0.0 以上才開始有效拒絕。"""
+        DisplayText = "關閉" if Value <= -0.99 else f"{Value:.2f}"
+        self._LblCosineVerifyVal.configure(text=DisplayText)
+        if self._Recognizer is not None:
+            self._Recognizer.SetThresholds(CosineVerifyThresh=Value)
 
     # ──────────────────────────────────────────────────────────────────────────
     # 關閉處理

@@ -33,7 +33,7 @@ COSINE_VERIFY_THRESH = -1.0
 # KNN 驗證參數
 KNN_K              = 5     # 比對最近 K 個訓練樣本
 KNN_PERCENTILE     = 80    # 閾值 = 訓練樣本 KNN 距離的第 P 百分位數
-KNN_VERIFY_ENABLED = True # True = 開啟 KNN 驗證；False = 關閉
+KNN_VERIFY_ENABLED = False # True = 開啟 KNN 驗證；False = 關閉
 
 # LinearSVC 超參數
 SVM_C_PARAM  = 500   # 正則化強度（C = 1/(2λ)，λ=0.001 → C=500，大邊距）
