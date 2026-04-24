@@ -148,7 +148,8 @@ class SvmClassifier:
             Yint     = np.array([LabelMap[n] for n in AllLabels], dtype=int)
 
             Clf = LinearSVC(C=self._C, max_iter=self._MaxIter,
-                            multi_class='ovr', dual='auto')
+                            multi_class='ovr', dual='auto',
+                            class_weight='balanced')
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", ConvergenceWarning)
                 Clf.fit(Xnorm, Yint)
