@@ -29,10 +29,10 @@ from face_pose_classifier import POSE_NAMES, POSE_NAMES_EN
 from svm_classifier_np import SVM_UNKNOWN_THRESH, SVM_MARGIN_THRESH
 
 # ── 應用程式常數 ──────────────────────────────────────────────────────────────
-#LEARN_TARGET_FRAMES   = 100    # 學習模式目標收集 frame 數（分5類需較多樣本）
-#LEARN_TIMEOUT_SECONDS = 120    # 學習模式最長等待時間（秒）
-LEARN_TARGET_FRAMES   = 30    # 學習模式目標收集 frame 數（分5類需較多樣本）
-LEARN_TIMEOUT_SECONDS = 40    # 學習模式最長等待時間（秒）
+LEARN_TARGET_FRAMES   = 100    # 學習模式目標收集 frame 數（分5類需較多樣本）
+LEARN_TIMEOUT_SECONDS = 120    # 學習模式最長等待時間（秒）
+#LEARN_TARGET_FRAMES   = 30    # 學習模式目標收集 frame 數（分5類需較多樣本）
+#LEARN_TIMEOUT_SECONDS = 40    # 學習模式最長等待時間（秒）
 UI_REFRESH_MS         = 30     # webcam 畫面更新間隔（毫秒）
 LEARN_TICK_MS         = 500    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
 DETECT_TICK_MS        = 300    # 偵測時每次推論的間隔
@@ -224,6 +224,20 @@ class MainApp(customtkinter.CTk):
             command=self._OnBtnTrainUnknown
         )
         self._BtnTrainUnknown.pack(side="left", padx=(5, 5), pady=5)
+
+        self._BtnExport = customtkinter.CTkButton(
+            Row1Top, text="Export", width=80,
+            fg_color="#1A4A1A", hover_color="#2A6B2A",
+            command=self._OnBtnExport
+        )
+        self._BtnExport.pack(side="left", padx=(5, 5), pady=5)
+
+        self._BtnImport = customtkinter.CTkButton(
+            Row1Top, text="Import & Merge", width=130,
+            fg_color="#1A1A4A", hover_color="#2A2A6B",
+            command=self._OnBtnImport
+        )
+        self._BtnImport.pack(side="left", padx=(5, 5), pady=5)
 
         # 學習進度區（預設隱藏，學習中顯示）
         self._Row1Bot = customtkinter.CTkFrame(Row1)
@@ -700,6 +714,71 @@ class MainApp(customtkinter.CTk):
                 ))
 
         threading.Thread(target=Worker, daemon=True).start()
+
+    def _OnBtnExport(self) -> None:
+        """Export 按鈕點擊：將指定人物的訓練資料匯出至獨立 .npz 檔案。"""
+        PersonName = self._TblMyName.get().strip()
+        if not PersonName:
+            MsgBox.showwarning("缺少姓名", "請先在姓名欄位輸入要匯出的姓名。")
+            return
+
+        KnownPersons = self._Recognizer.GetKnownPersons()
+        if PersonName not in KnownPersons:
+            MsgBox.showwarning(
+                "找不到人物",
+                f"資料中沒有 [{PersonName}] 的學習資料。\n"
+                f"目前已有人物：{', '.join(KnownPersons) if KnownPersons else '（無）'}"
+            )
+            return
+
+        FilePath = FileDialog.asksaveasfilename(
+            title="選擇匯出路徑",
+            defaultextension=".npz",
+            filetypes=[("NumPy 壓縮檔", "*.npz")],
+            initialfile=f"face_model_{PersonName}.npz"
+        )
+        if not FilePath:
+            return
+
+        Ok = self._Recognizer.ExportPerson(PersonName, FilePath)
+        if Ok:
+            SampleCount = self._Recognizer.GetSampleCounts().get(PersonName, 0)
+            self._AppendLog(f"匯出成功：{PersonName}（{SampleCount} 筆）→ {FilePath}")
+            MsgBox.showinfo(
+                "匯出完成",
+                f"已成功匯出 [{PersonName}] 的訓練資料。\n"
+                f"共 {SampleCount} 筆樣本\n"
+                f"儲存至：{FilePath}"
+            )
+        else:
+            MsgBox.showerror("匯出失敗", f"匯出 [{PersonName}] 時發生錯誤，請查看 console 輸出。")
+
+    def _OnBtnImport(self) -> None:
+        """Import & Merge 按鈕點擊：選擇多個個人 .npz 檔，合併進主模型並重訓儲存。"""
+        if self._LearnActive or self._TrainUnknownActive:
+            MsgBox.showwarning("訓練中", "請先等待目前訓練完成再執行匯入。")
+            return
+
+        FilePaths = FileDialog.askopenfilenames(
+            title="選擇要匯入的個人模型檔（可多選）",
+            filetypes=[("NumPy 壓縮檔", "*.npz")],
+        )
+        if not FilePaths:
+            return
+
+        Ok, ImportedPersons = self._Recognizer.ImportPersonFiles(list(FilePaths))
+        if Ok:
+            SaveOk     = self._Recognizer.SaveModel()
+            PersonList = '、'.join(ImportedPersons)
+            self._AppendLog(f"匯入成功：{PersonList}（共 {len(ImportedPersons)} 人）")
+            MsgBox.showinfo(
+                "匯入完成",
+                f"已成功匯入以下人物：\n{PersonList}\n\n"
+                f"模型{'儲存成功' if SaveOk else '儲存失敗，請查看 console'}"
+            )
+            self._UpdateSummary()
+        else:
+            MsgBox.showerror("匯入失敗", "匯入時發生錯誤，請查看 console 輸出。")
 
     def _StartLearning(self, PersonName: str) -> None:
         """開始學習模式。"""

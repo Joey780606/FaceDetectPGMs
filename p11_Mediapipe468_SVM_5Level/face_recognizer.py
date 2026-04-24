@@ -127,6 +127,86 @@ class FaceRecognizer:
             print(f"[FaceRecognizer] SaveModel 失敗：{Error}")
             return False
 
+    def ExportPerson(self, PersonName: str, FilePath: str) -> bool:
+        """
+        將指定人物的訓練資料匯出至獨立 .npz 檔案（格式與主模型相同）。
+
+        Returns
+        -------
+        True 表示匯出成功，False 表示失敗或人名不存在。
+        """
+        try:
+            if PersonName not in self._Samples:
+                return False
+            PoseDict = self._Samples[PersonName]
+            if not any(Vecs for Vecs in PoseDict.values()):
+                return False
+
+            XList, YList, PList = [], [], []
+            for PoseCat, Vecs in PoseDict.items():
+                for Vec in Vecs:
+                    XList.append(Vec)
+                    YList.append(0)
+                    PList.append(PoseCat)
+
+            X = np.array(XList, dtype=float)
+            Y = np.array(YList, dtype=int)
+            P = np.array(PList, dtype=int)
+            np.savez_compressed(
+                FilePath,
+                X=X, Y=Y, P=P,
+                persons=np.array([PersonName], dtype=object),
+            )
+            return True
+
+        except Exception as Error:
+            print(f"[FaceRecognizer] ExportPerson 失敗：{Error}")
+            return False
+
+    def ImportPersonFiles(self, FilePaths: list) -> tuple:
+        """
+        讀取多個個人 .npz 檔，將所有人物資料合併進目前模型並重新訓練。
+        若人名已存在，則追加樣本（不覆蓋）。
+
+        Returns
+        -------
+        (Success: bool, ImportedPersons: list[str])
+        """
+        try:
+            ImportedPersons = []
+            for FilePath in FilePaths:
+                if not os.path.exists(FilePath):
+                    print(f"[FaceRecognizer] 檔案不存在：{FilePath}")
+                    continue
+                Data    = np.load(FilePath, allow_pickle=True)
+                Persons = list(Data['persons'])
+                X       = Data['X']
+                Y       = Data['Y']
+                P       = Data['P']
+
+                for Idx, Name in enumerate(Persons):
+                    Name       = str(Name)
+                    PersonMask = (Y == Idx)
+                    if Name not in self._Samples:
+                        self._Samples[Name] = {}
+                    for PoseCat in range(N_POSES):
+                        PoseMask = PersonMask & (P == PoseCat)
+                        if PoseMask.any():
+                            if PoseCat not in self._Samples[Name]:
+                                self._Samples[Name][PoseCat] = []
+                            self._Samples[Name][PoseCat].extend(list(X[PoseMask]))
+                    if Name not in ImportedPersons:
+                        ImportedPersons.append(Name)
+
+            if ImportedPersons:
+                self._trainMatcher()
+                return True, ImportedPersons
+            return False, []
+
+        except Exception as Error:
+            print(f"[FaceRecognizer] ImportPersonFiles 失敗：{Error}")
+            return False, []
+
     def AddSample(self, Frame: np.ndarray, PersonName: str,
                   Retrain: bool = False, FrontalOnly: bool = False) -> tuple:
         """
