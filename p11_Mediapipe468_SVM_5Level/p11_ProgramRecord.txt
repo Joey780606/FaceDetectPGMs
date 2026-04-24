@@ -3,6 +3,7 @@
 [可思考的地方]
 [運作理論整理]
 [SVM由C.C寫和直接用Sklearn的落差] 主要要C.C寫是因為Windows會擋相關的dll
+[UI的Export,Import的用法]
 
 標記區: (不懂,要看)
 = = = = = =
@@ -23,7 +24,7 @@ mp_face_landmark.py
   def detect(self, Frame: np.ndarray) -> list:
     呼叫 MediaPipe API、解析結果、回傳 Landmarks3D（原始 468×3 座標）
     偵測 BGR 影像中的所有人臉，回傳邊界框、468 個 3D landmark 及關鍵點。
-svm_classifier_np.py (Claude code幫我寫的,目標是避免sklearn / scipy的dll檔在某些 Windows的電腦跑起來會有問題)
+svm_classifier_np.py (Claude code幫我寫的,目標是避免sklearn / scipy的dll檔在某些 Windows的電腦跑起來會有問題),後來換sklearn了
   for _, Landmarks3D, KeyPoints in Detections: — 在這裡接收468wfyr 並往下傳
   
 [運作理論整理]
@@ -33,6 +34,8 @@ WebCam影像進來 > 找出468點 > 把臉拉回正臉 > 取25關鍵點 > 用顴
 | 重心向量化（鼻尖為原點） | `v_i = P_i − P_鼻尖`（同 p10，鼻尖是「重心參考點」） |
 | 單位化（除以臉部寬度） | `‖v_i‖ / 臉部寬度`（臉部寬度 = 左右顴骨間距，p10 用 IOD） |
 | 點對點向量夾角 | `θ_ij = arccos(unit_i · unit_j)`，幾何不變量 |
+
+有sigmoid, cosine, margin 這三個 filter
 
 [Q&A]
 <<1.訓練時,接收臉部468個點原始資料的程式在什麼位置?>>
@@ -44,12 +47,14 @@ WebCam影像進來 > 找出468點 > 把臉拉回正臉 > 取25關鍵點 > 用顴
  訓練：face_recognizer.py > AddSample(), 偵測：face_recognizer.py  Predict()
 5.<<是蒐集完訓練資料後再開始做訓練對嗎?訓練的起點在那裡?>>
  訓練的起點是在: 對，蒐集完後才訓練。訓練起點在 face_recognizer.py 的 _trainMatcher()
-4.OneClassSVM 是用在 
- face_recognizer.py 的 def FinishLearning(self) -> None:
+4.OneClassSVM, SGDClassifier, LinearSVC   是用在什麼情況? (CLAUDE_original.md 後來有寫,我們後來是採用 sklearn LinearSVC)
+ 用到的程式是在 svm_classifier_np.py > def __init__(self, Threshold: float = SVM_UNKNOWN_THRESH, 裡
 5.<<訓練後SVM是不是會存成一個函式?以供訓練時帶入函式就可知是不是某人?那個函式是存在那裡?>>
 6. <<訓練後存face_model.npz的內容是什麼?你說_TrainData的資料也會存到face_model.npz裡?這好像是訓練時的x,y,z歸一化的資料,為什麼要儲存他?>>
 7. <<每個已訓練的人,各象限資料,儲存的架構>>
 8. <<請說明預測時的做法>>
+9. [SVM/全角度] Scores=[Joey:2.07  Neil:-1.26  Michael:-5.76  Frank:-1.23  yen:-4.95  Kirk:-1.47  mike:-4.18  Unknown.:0.77]  margin=1.30(閾0.00)  sigmoid=0.888(閾0.10)  → Joey  cos=0.757
+了解margin, sigmoid, cos, 還有 knn的概念
 
 <<1.訓練時,接收臉部468個點原始資料的程式在什麼位置?>>
 ● 原始 468 個點由 mp_face_landmarker.py 的 detect() 接收，訓練流程如下：
@@ -351,3 +356,6 @@ face_feature_3d.py >>  def extractFeatures3D(Landmarks3D: np.ndarray)
 
   我一開始選擇手寫 SGD 是為了避免 sklearn 依賴。若要改用 sklearn，LinearSVC 比 SGDClassifier
   更適合我們這個小資料量的人臉辨識場景，品質更有保障。
+  
+[UI的Export,Import的用法]
+1. Export: 輸入要輸出的人,再按Export

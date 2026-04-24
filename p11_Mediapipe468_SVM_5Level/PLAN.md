@@ -66,13 +66,13 @@ R.T @ (Landmark - NoseTip) → 正臉座標系
 
 | 項目 | 說明 |
 |------|------|
-| 多人模式 | sklearn LinearSVC，multi_class='ovr'，C=500，max_iter=2000 |
+| 多人模式 | sklearn LinearSVC，multi_class='ovr'，C=500，max_iter=2000，class_weight='balanced' |
 | 單人模式 | 最大 Cosine 相似度（LinearSVC 需至少 2 類） |
 | 前處理 | Z-Score 標準化 + L2 正規化（與訓練相同） |
 | Unknown 判斷 | sigmoid < Threshold → Unknown |
 | Margin 判斷 | top-1 - top-2 < MarginThresh → Unknown（正臉限定） |
+| 餘弦驗證 | COSINE_VERIFY_THRESH=-1.0（預設關閉）；query 與該人平均向量 cosine < 閾值 → Unknown |
 | KNN 驗證 | KNN_VERIFY_ENABLED=False（預設關閉） |
-| 餘弦驗證 | COSINE_VERIFY_THRESH=-1.0（預設關閉） |
 
 ---
 
@@ -81,11 +81,14 @@ R.T @ (Landmark - NoseTip) → 正臉座標系
 ```
 sigmoid 低於閾值 → "Unknown"（sigmoid 拒絕）
 正臉 margin 低於閾值 → "Unknown"（margin 拒絕）
+餘弦驗證低於閾值 → "Unknown"（cosine 拒絕，預設關閉 COSINE_VERIFY_THRESH=-1.0）
 KNN 距離超過閾值 → "Unknown"（KNN 拒絕，預設關閉）
 
 自訓練負樣本類別：
-  UNKNOWN_CLASS = "Unknown."（末尾句點，區別於上述三種拒絕）
+  UNKNOWN_CLASS = "Unknown."（末尾句點，區別於上述四種拒絕）
   透過 Train Unknown. 按鈕選擇圖片目錄批次訓練
+  建議訓練多人種/多年齡/多光線的多元圖片，樣本數盡量接近已知人總樣本數
+  OvR 不平衡由 class_weight='balanced' 自動補償
 ```
 
 ---
@@ -134,17 +137,45 @@ SVM 權重不存入 npz，每次程式啟動由 `LoadModel()` 讀取特徵向量
 
 | 元件 | 功能 |
 |------|------|
-| 姓名欄位 + Learning | Webcam 正臉學習（FrontalOnly，30 幀 / 40 秒） |
+| 姓名欄位 + Learning | Webcam 正臉學習（FrontalOnly，100 幀 / 120 秒） |
 | Train Unknown. | 選擇圖片目錄，批次萃取特徵加入 Unknown. 類別 |
 | Remove | 移除指定人物所有訓練資料並重訓 |
+| Export | 將姓名欄指定人物的資料匯出為獨立 .npz（分散訓練用） |
+| Import & Merge | 多選個人 .npz，合併進主模型並重訓儲存 |
 | Detect / Stop | 啟動/停止人臉辨識，滑動窗口多數決（10 幀） |
 | SVM 信心度閾值 | 0.10~0.99，即時調整 sigmoid 門檻 |
 | 分差閾值(Margin) | 0.0~3.0，即時調整正臉 margin 門檻 |
+| 餘弦驗證閾值(Cos) | −1.0（關閉）~0.8，即時調整 cosine 驗證門檻 |
 | 姿態顯示 | 即時顯示 Yaw/Pitch 值與姿態類別 |
 
 ---
 
-## 十、商用授權
+## 十、分散訓練工作流程（Export / Import & Merge）
+
+每人可在各自電腦獨立訓練，再由主機合併：
+
+```
+同事A電腦：訓練 Joey → Export → face_model_Joey.npz
+同事B電腦：訓練 Henry → Export → face_model_Henry.npz
+主機：Import & Merge（多選所有 .npz）→ 自動合併重訓 → 儲存 face_model.npz
+```
+
+**個人 .npz 格式**（與主模型相同）：
+```python
+persons : ['Joey']          # 只含一人
+X       : float (N, 325)
+Y       : int   (N,)        # 全為 0（只有一人）
+P       : int   (N,)        # 姿態類別 0~4
+```
+
+**注意事項**：
+- Import 時若人名已存在，樣本會**追加**（不覆蓋）
+- 若要重新匯入同一人，建議先 Remove 再 Import
+- 整包備份直接複製 `face_model.npz` 即可（含所有人）
+
+---
+
+## 十一、商用授權
 
 MediaPipe Apache 2.0、OpenCV Apache 2.0、NumPy BSD、
 scikit-learn BSD、CustomTkinter CC0、Pillow MIT
