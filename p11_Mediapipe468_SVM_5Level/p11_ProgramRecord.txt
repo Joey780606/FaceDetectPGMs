@@ -1,10 +1,14 @@
 [程式記錄]
 [Q&A]
 [可思考的地方]
+[運作理論整理]
+[SVM由C.C寫和直接用Sklearn的落差] 主要要C.C寫是因為Windows會擋相關的dll
+
+標記區: (不懂,要看)
 = = = = = =
 [程式記錄]
 face_feature_3d.py
-  def extractFeatures3D(Landmarks3D: np.ndarray)
+  def extractFeatures3D(Landmarks3D: np.ndarray) //(不懂,要看)
     1. 旋轉正規化 → 萃取 → 回傳 325 維向量
 	2. # Part B：各關鍵點到鼻尖的正規化距離（‖v_i‖ / 臉部寬度）
 	3  <<face_feature_3d.py 記錄1 :  extractFeatures3D>> 
@@ -19,17 +23,27 @@ mp_face_landmark.py
   def detect(self, Frame: np.ndarray) -> list:
     呼叫 MediaPipe API、解析結果、回傳 Landmarks3D（原始 468×3 座標）
     偵測 BGR 影像中的所有人臉，回傳邊界框、468 個 3D landmark 及關鍵點。
-svm_classifier_np.py
+svm_classifier_np.py (Claude code幫我寫的,目標是避免sklearn / scipy的dll檔在某些 Windows的電腦跑起來會有問題)
   for _, Landmarks3D, KeyPoints in Detections: — 在這裡接收468wfyr 並往下傳
+  
+[運作理論整理]
+WebCam影像進來 > 找出468點 > 把臉拉回正臉 > 取25關鍵點 > 用顴骨間距為主做正規化
+| 主管建議 | 實作方式 |
+|---------|---------|
+| 重心向量化（鼻尖為原點） | `v_i = P_i − P_鼻尖`（同 p10，鼻尖是「重心參考點」） |
+| 單位化（除以臉部寬度） | `‖v_i‖ / 臉部寬度`（臉部寬度 = 左右顴骨間距，p10 用 IOD） |
+| 點對點向量夾角 | `θ_ij = arccos(unit_i · unit_j)`，幾何不變量 |
+
 [Q&A]
 <<1.訓練時,接收臉部468個點原始資料的程式在什麼位置?>>
 2.<<訓練時對468個點做歸一化的程式在什麼位置?歸一化後存在那個變數裡,真的是存468個點*3的位置嗎?>>
- 是存在 face_recognizer.py 的 _TrainData
-3.除了歸一化外,臉部座標還有做什麼處理?
+ 最終存入訓練樣本的是 325 維向量
+3.<<除了利用歸一化外,臉部座標還有做什麼處理?>>
 4.<<再確認一下有把臉位置擺正的地方再那裡?是否訓練和偵測都有做擺正的動作?>>
-
-<<3.是蒐集完訓練資料後再開始做訓練對嗎?訓練的起點在那裡?>>
- 訓練的起點是在: FinishLearning
+ face_feature_3d.py 記錄1 :  extractFeatures3D, 確定訓練和偵測都有做擺正的動作. 
+ 訓練：face_recognizer.py > AddSample(), 偵測：face_recognizer.py  Predict()
+5.<<是蒐集完訓練資料後再開始做訓練對嗎?訓練的起點在那裡?>>
+ 訓練的起點是在: 對，蒐集完後才訓練。訓練起點在 face_recognizer.py 的 _trainMatcher()
 4.OneClassSVM 是用在 
  face_recognizer.py 的 def FinishLearning(self) -> None:
 5.<<訓練後SVM是不是會存成一個函式?以供訓練時帶入函式就可知是不是某人?那個函式是存在那裡?>>
@@ -59,7 +73,7 @@ svm_classifier_np.py
 
   第一層歸一化（MediaPipe 內部做）
 
-  mp_face_landmarker.py line 155~159：MediaPipe 已把 x, y 歸一化為 0~1（相對圖像寬高,這還不是對眼距離的歸一化），z 為相對深度。這裡只是把
+  mp_face_landmarker.py line 155~159：MediaPipe 已把 x, y 歸一化為 0~1（相對圖像寬高(,這還不是對眼距離的歸一化），z 為相對深度。這裡只是把
   MediaPipe 的結果裝進 numpy array：
 
   Landmarks3D = np.array(
@@ -101,6 +115,21 @@ svm_classifier_np.py
 <<再確認一下有把臉位置擺正的地方再那裡?是否訓練和偵測都有做擺正的動作?>>
 face_feature_3d.py >>  def extractFeatures3D(Landmarks3D: np.ndarray) 
 
+<<是蒐集完訓練資料後再開始做訓練對嗎?訓練的起點在那裡?>>
+● 對，蒐集完後才訓練。流程是：
+
+  AddSample() 蒐集樣本 → 存入 self._Samples
+      ↓
+  FinishLearning() 呼叫 _trainMatcher()  ← 訓練起點
+      ↓
+  SvmClassifier.fit()  ← SVM 實際訓練
+
+  訓練起點在 face_recognizer.py 的 _trainMatcher()，由兩個地方觸發：
+
+  1. Learning 結束時：main.py 的 _StopLearning() → self._Recognizer.FinishLearning() → _trainMatcher()
+  2. 載入模型時：LoadModel() 讀完 .npz 後直接呼叫 _trainMatcher()
+
+  _trainMatcher() 把 self._Samples 裡所有人的所有樣本整合，傳給 SvmClassifier.fit()，才真正開始 SGD 訓練 SVM 權重。
 
 <<face_feature_3d.py 記錄1 :  extractFeatures3D>> 
 ● Step 2：把位移向量單位化（只保留方向）
@@ -173,3 +202,152 @@ face_feature_3d.py >>  def extractFeatures3D(Landmarks3D: np.ndarray)
 1. 有沒有辦法由前frame和後frame來判斷是否為同一人?在正臉才detect,若發現臉轉動的太多,但確定是同一個人,此時就不要再detect,避免偵測有誤? (OK)
 2. MediaPipe提供的資料,有無468個有那些是虛擬出來的?或是有什麼資訊表示臉的關鍵部分已看不到,或已經不精準?
 3. 能否從We
+
+
+<<除了利用歸一化外,臉部座標還有做什麼處理?>>
+看來都在 face_feature_3d.py > extractFeatures3D 函式處理
+| 主管建議 | 實作方式 |
+|---------|---------|
+| 重心向量化（鼻尖為原點） | `v_i = P_i − P_鼻尖`（同 p10，鼻尖是「重心參考點」） |
+| 單位化（除以臉部寬度） | `‖v_i‖ / 臉部寬度`（臉部寬度 = 左右顴骨間距，p10 用 IOD） |
+| 點對點向量夾角 | `θ_ij = arccos(unit_i · unit_j)`，幾何不變量 |
+
+
+[SVM由C.C寫和直接用Sklearn的落差] 主要要C.C寫是因為Windows會擋相關的dll
+  自己實作的核心部分：
+
+  ┌─────────────────────────┬───────────────────────────────────────┐
+  │          功能           │                 位置                  │
+  ├─────────────────────────┼───────────────────────────────────────┤
+  │ Z-Score 標準化          │ fit() 內手動計算 mean / std           │
+  ├─────────────────────────┼───────────────────────────────────────┤
+  │ L2 正規化               │ fit() 內手動計算 norm                 │
+  ├─────────────────────────┼───────────────────────────────────────┤
+  │ OvR SGD hinge loss 訓練 │ _trainOneBinary() 手寫 mini-batch SGD │
+  ├─────────────────────────┼───────────────────────────────────────┤
+  │ 單人 Cosine 相似度模式  │ predict() 內手寫                      │
+  ├─────────────────────────┼───────────────────────────────────────┤
+  │ Sigmoid 轉換            │ predict() 內 1 / (1 + exp(-x))        │
+  ├─────────────────────────┼───────────────────────────────────────┤
+  │ KNN 驗證                │ _knnVerify() 手寫                     │
+  └─────────────────────────┴───────────────────────────────────────┘
+
+❯ 目前你寫的SVC處理,是用LinearSVC 或 SGDClassifier ?
+
+● 是 SGDClassifier 的概念，但完全手寫的版本。
+
+  _trainOneBinary() 的實作：
+
+  # svm_classifier_np.py
+  for _ in range(self._NEpochs):          # 200 epochs
+      Indices = np.random.permutation(N)
+      for Start in range(0, N, BatchSize): # mini-batch SGD
+          Xb, Yb = X[Batch], Y[Batch]
+          Scores = Xb @ w + b
+          Margin = Yb * Scores
+          Mask   = Margin < 1.0           # hinge loss 條件
+
+          dw = -mean(Yb[Mask] * Xb[Mask]) + λ * w   # L2 正則化
+          w -= lr * dw
+          b -= lr * db
+
+      lr *= LrDecay                       # 學習率衰減
+
+  對應到 sklearn 的參數：
+
+  ┌───────────────────┬────────────────────────────┐
+  │    我們的實作     │ sklearn SGDClassifier 等效 │
+  ├───────────────────┼────────────────────────────┤
+  │ hinge loss        │ loss='hinge'               │
+  ├───────────────────┼────────────────────────────┤
+  │ L2 正則化 λ=0.001 │ penalty='l2', alpha=0.001  │
+  ├───────────────────┼────────────────────────────┤
+  │ mini-batch SGD    │ SGDClassifier 內建         │
+  ├───────────────────┼────────────────────────────┤
+  │ OvR 多分類        │ OneVsRestClassifier 包裝   │
+  ├───────────────────┼────────────────────────────┤
+  │ 200 epochs        │ max_iter=200               │
+  └───────────────────┴────────────────────────────┘
+
+  如果改用 sklearn，大約這樣寫就能替換：
+
+  from sklearn.linear_model import SGDClassifier
+  from sklearn.multiclass import OneVsRestClassifier
+
+  clf = OneVsRestClassifier(
+      SGDClassifier(loss='hinge', penalty='l2', alpha=0.001, max_iter=200)
+  )
+  clf.fit(Xnorm, Y)
+
+※ recap: Building a MediaPipe 468-landmark SVM face recognizer (p11). Recent session was Q&A about code internals. No
+   pending code changes — ready for next user request.
+
+❯ 主管擔心你寫的svm會和sklearn的svm有落差,你覺得這個的可能性有多高?
+
+● 老實說，有落差的可能性偏高（我估 60~70%）。
+
+  ---
+  主要差距來源：
+
+  1. 最大風險：收斂品質
+
+  我們用的是手寫 mini-batch SGD，sklearn 的 LinearSVC 底層用的是
+  liblinear（座標下降法），數學上保證收斂到全域最優解。我們的 SGD 只是近似解，200 epochs 不一定夠。
+
+  2. 學習率調整
+
+  我們用固定指數衰減（LrDecay=0.99），sklearn 有基於理論推導的最佳學習率排程，收斂更穩。
+
+  3. 正則化施加方式
+
+  我們的 L2 正則化是每個 mini-batch 手動加，sklearn 有更精確的實作。
+
+  ---
+  落差會表現在哪裡：
+
+  ┌──────────────────┬────────────────────────────────┐
+  │       現象       │              原因              │
+  ├──────────────────┼────────────────────────────────┤
+  │ SVM 分數偏低     │ 決策邊界沒收斂到最優，邊距較小 │
+  ├──────────────────┼────────────────────────────────┤
+  │ Margin 不穩定    │ 同上                           │
+  ├──────────────────┼────────────────────────────────┤
+  │ 類似臉孔較難區分 │ 最優邊界沒找到                 │
+  └──────────────────┴────────────────────────────────┘
+
+  ---
+  建議：
+
+  如果部署環境允許 sklearn，可以做個對照實驗——把 SvmClassifier.fit() 換成 sklearn LinearSVC，用同樣的訓練資料比較 SVM
+   分數高低。工程量不大，結論很清楚。
+   
+❯ 可是你說你寫的是SGDClassifier,現在你建議用sklearn的LinearSVC. 這二個有什麼差異嗎?
+
+● 同樣都是線性 SVM，但求解方法不同：
+
+  ┌────────────┬───────────────────────────────┬──────────────────────────────┐
+  │            │         SGDClassifier         │          LinearSVC           │
+  ├────────────┼───────────────────────────────┼──────────────────────────────┤
+  │ 求解方法   │ 隨機梯度下降（近似解）        │ liblinear 座標下降（精確解） │
+  ├────────────┼───────────────────────────────┼──────────────────────────────┤
+  │ 收斂保證   │ 不保證，依賴 epoch 數和學習率 │ 保證收斂到全域最優           │
+  ├────────────┼───────────────────────────────┼──────────────────────────────┤
+  │ 速度       │ 大資料快                      │ 小/中資料快                  │
+  ├────────────┼───────────────────────────────┼──────────────────────────────┤
+  │ 結果穩定性 │ 每次訓練略有不同（隨機性）    │ 每次結果相同                 │
+  ├────────────┼───────────────────────────────┼──────────────────────────────┤
+  │ 適合場景   │ 資料量非常大（百萬筆）        │ 資料量中小（數千筆以下）     │
+  └────────────┴───────────────────────────────┴──────────────────────────────┘
+
+  ---
+  我們的場景：
+
+  每人約 30~100 筆，總共幾百筆，這個資料量非常適合 LinearSVC——資料小、LinearSVC 速度快且解最優。
+
+  SGDClassifier 的優勢（大資料）在我們這個場景完全用不到，反而帶來「不保證收斂」的缺點。
+
+  ---
+  結論：
+
+  我一開始選擇手寫 SGD 是為了避免 sklearn 依賴。若要改用 sklearn，LinearSVC 比 SGDClassifier
+  更適合我們這個小資料量的人臉辨識場景，品質更有保障。
