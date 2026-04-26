@@ -138,12 +138,12 @@ class MpFaceLandmarker:
             RgbFrame = Frame[:, :, ::-1].copy()
             MpImage  = mp.Image(image_format=mp.ImageFormat.SRGB, data=RgbFrame)
 
-            Detection = self._Landmarker.detect(MpImage)
+            Detection = self._Landmarker.detect(MpImage)    # Mediapipe的函式,回傳 FaceDetection 物件,包含 face_landmarks 的物件
 
             if not Detection.face_landmarks:
                 return Results
 
-            for FaceLms in Detection.face_landmarks:
+            for FaceLms in Detection.face_landmarks:    # 一張圖裡每個人臉的 landmark 列表
                 try:
                     # 只取前 468 個點（後 10 個為虹膜，不使用）
                     LmsCount = min(len(FaceLms), 468)

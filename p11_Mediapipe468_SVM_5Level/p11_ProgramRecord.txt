@@ -8,27 +8,46 @@
 標記區: (不懂,要看)
 = = = = = =
 [程式記錄]
-face_feature_3d.py
+face_feature_3d.py : Ln 174, 取圖,轉正(姿態正規化),找點,正規化, 325 維特徵萃取
   def extractFeatures3D(Landmarks3D: np.ndarray) //(不懂,要看)
     1. 旋轉正規化 → 萃取 → 回傳 325 維向量
 	2. # Part B：各關鍵點到鼻尖的正規化距離（‖v_i‖ / 臉部寬度）
 	3  <<face_feature_3d.py 記錄1 :  extractFeatures3D>> 
   def _buildFaceRotationMatrix(Landmarks3D: np.ndarray)
     從左右顴骨（234, 454）與額頭/下巴（10, 152）建立臉部座標系旋轉矩陣 R。
-face_pose_classifier.py
-face_recognizer.py
+	
+  Step 0：_buildFaceRotationMatrix → R.T 旋轉至正臉座標系
+  Step 1：取 25 個關鍵點，以鼻尖為原點
+  Step 2：單位化（消除縮放）
+  Step 3：C(25,2)=300 對夾角 + 25 正規化距離
+  └──►325 維特徵向量
+  
+  25 個關鍵點：**
+  額頭、眼睛四角×2、眼瞼×2、眉毛×2（外/頂/內）、鼻翼×2、鼻基底、嘴角×2、上下唇、下巴、左右顴骨
+  
+face_pose_classifier.py : Ln 172, Signed Yaw / Pitch → 五類姿態分類（0~4）
+  姿態類別（0~4，供 UI 顯示）:查出是中間,左上,左下,右上,右下
+
+face_recognizer.py : 491, 人類辦識總程式(會用到其他程式),只取正臉,載入/存放npz 檔,批次學習後重新訓練,     SVM真正的fit位置,人臉推論(但主程式在svm_classifier_np.py)
   def AddSample(self, Frame: np.ndarray, PersonName: str,  (這是偵測人臉的重要起點)
      從 BGR 影像偵測人臉，萃取特徵向量並依姿態類別加入訓練樣本。
-main.py
-mp_face_landmark.py
+main.py : Ln 987
+  StealEatStep
+
+[mp_face_landmark.py] : Ln 229, MediaPipe FaceLandmarker 封裝，回傳 (468, 3) landmarks
   def detect(self, Frame: np.ndarray) -> list:
     呼叫 MediaPipe API、解析結果、回傳 Landmarks3D（原始 468×3 座標）
     偵測 BGR 影像中的所有人臉，回傳邊界框、468 個 3D landmark 及關鍵點。
-svm_classifier_np.py (Claude code幫我寫的,目標是避免sklearn / scipy的dll檔在某些 Windows的電腦跑起來會有問題),後來換sklearn了
+  UI 顯示學習時的眼鼻嘴點
+	
+svm_classifier_np.py : Ln 303, 後來換sklearn了,人臉推論主程式,sigmoid,margin 判斷 (sklearn LinearSVC + Z-Score/L2 + KNN 驗證)
   for _, Landmarks3D, KeyPoints in Detections: — 在這裡接收468wfyr 並往下傳
+  多(單)人模式, 前處理, Unknown 判斷, Margin 判斷, 餘弦驗證, KNN 驗證
+  
+  Unknown 偵測機制
   
 [運作理論整理]
-WebCam影像進來 > 找出468點 > 把臉拉回正臉 > 取25關鍵點 > 用顴骨間距為主做正規化
+WebCam影像進來 > 找出468點 > 把臉拉回正臉 > 取25關鍵點,並以此找出300 夾角 + 25 距離 > 用顴骨間距為主做正規化
 | 主管建議 | 實作方式 |
 |---------|---------|
 | 重心向量化（鼻尖為原點） | `v_i = P_i − P_鼻尖`（同 p10，鼻尖是「重心參考點」） |
@@ -359,3 +378,30 @@ face_feature_3d.py >>  def extractFeatures3D(Landmarks3D: np.ndarray)
   
 [UI的Export,Import的用法]
 1. Export: 輸入要輸出的人,再按Export
+
+
+[mp_face_landmark.py]
+1. 記錄點:
+ .. from mediapipe.tasks import python as mp_python  #可用try
+ .. _MODEL_FILENAME = "face_landmarker.task" #底線用途
+ .. def _ensureModel(ModelPath: str) -> None: #底線用途
+ .. urllib.request.urlretrieve(_MODEL_URL, ModelPath)
+ .. raise RuntimeError(
+ .. running_mode=mp_vision.RunningMode.IMAGE,
+ ..# def __init__(self, MaxFaces: int = 5, MinDetectConf: float = 0.5,  ##這個可以看是否調整
+ ..# KeyPoints    = {"left_eye": (cx,cy), "right_eye": (cx,cy), ##看能否回傳25個座標
+ .. H, W = Frame.shape[:2]
+ .. RgbFrame = Frame[:, :, ::-1].copy()  #H,W照copy, BGR改成RGB
+看到Ln 117
+ 
+2. 有一種說法:
+running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
+我的建議：
+
+用 VIDEO 模式 就夠了，不需要 LIVE_STREAM：
+改成 RunningMode.VIDEO
+改成 MinTrackConf=0.3 或 0.4
+在 detect() 調用時加上 timestamp_ms 參數
+這樣既能跨幀追蹤改善連貫性，代碼也更簡潔。LIVE_STREAM 主要用於效能優化（非同步不卡主線程），對精準度沒有額外幫助。
+
+
