@@ -543,25 +543,26 @@ class MainApp(customtkinter.CTk):
             return
 
         if StealEatStep:
-            # 穩定臉追蹤：正臉成功→更新快取；正臉 Unknown→清除快取；
-            # 側臉且 SVM 認出人→ IoU 符合時沿用快取；側臉 Unknown→直接顯示 Unknown
+            # 穩定臉追蹤（p11 StealEatStep）：
+            #   正臉辨識成功 → 更新快取
+            #   正臉 Unknown → 清除快取（避免殘留前一人身份）
+            #   側臉且 IoU ≥ 閾值 → 沿用正臉快取，讓轉頭時名稱不閃爍
             StableResults = []
             for R in Results:
                 Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch = R
                 from face_pose_classifier import POSE_FRONTAL as _PF
                 if PoseCat == _PF:
-                    if Name not in ("Unknown",):
+                    if Name != "Unknown":
                         self._StableFace     = ((Top, Right, Bottom, Left), Name, Conf)
                         self._StableFaceMiss = 0
                     else:
-                        # 正臉但不認識此人 → 清除快取，避免殘留前一人身份
+                        # 正臉 Unknown → 清除快取，避免殘留前一人身份
                         self._StableFace     = None
                         self._StableFaceMiss = 0
                     StableResults.append(R)
                 else:
-                    # 側臉：SVM 回傳 Unknown 時不套用快取，直接顯示 Unknown
-                    # 只有 SVM 本次也辨識出人物（非 Unknown）時，才考慮以 IoU 沿用快取
-                    if self._StableFace is not None and Name != "Unknown":
+                    # 側臉：只要有快取且 IoU 符合，就沿用正臉辨識結果
+                    if self._StableFace is not None:
                         StableBbox, StableName, StableConf = self._StableFace
                         Iou = self._computeIoU((Top, Right, Bottom, Left), StableBbox)
                         if Iou >= STABLE_FACE_IOU_THRESH:

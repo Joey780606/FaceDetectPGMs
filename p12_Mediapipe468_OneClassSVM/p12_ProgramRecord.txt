@@ -4,6 +4,8 @@
 [運作理論整理]
 [SVM由C.C寫和直接用Sklearn的落差] 主要要C.C寫是因為Windows會擋相關的dll
 [UI的Export,Import的用法]
+[重要常數]
+[MediaPipe資料接收後的處理程序有二個,處理模式不一樣]
 
 標記區: (不懂,要看)
 = = = = = =
@@ -25,7 +27,7 @@
   25 個關鍵點：**
   額頭、眼睛四角×2、眼瞼×2、眉毛×2（外/頂/內）、鼻翼×2、鼻基底、嘴角×2、上下唇、下巴、左右顴骨
   
-face_pose_classifier.py : Ln 172, (直接移植 p11)  Signed Yaw / Pitch → 五類姿態分類（0~4）
+[face_pose_classifier.py] : Ln 172, (直接移植 p11)  Signed Yaw / Pitch → 五類姿態分類（0~4）
   姿態類別（0~4，供 UI 顯示）:查出是中間,左上,左下,右上,右下
 
 face_recognizer.py : (修改p11) 491, 人類辦識總程式(會用到其他程式),只取正臉,載入/存放npz 檔,批次學習後重新訓練,     SVM真正的fit位置,人臉推論(但主程式在svm_classifier_np.py)
@@ -415,3 +417,42 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
  .. NormDists = np.linalg.norm(Vecs, axis=1) / FaceWidth    # shape=(25,)
  .. VecNorms = np.linalg.norm(Vecs, axis=1, keepdims=True) #下面三行都不懂
  .. CosMat = np.clip(UnitVecs @ UnitVecs.T, -1.0, 1.0) #下面三行都不懂
+
+[重要常數]
+1. svm_classifier_np.py
+# OneClassSVM 超參數
+SVM_NU     = 0.2       # 訓練集中異常點比例上限（0 < nu ≤ 1）
+SVM_KERNEL = 'rbf'     # RBF kernel
+SVM_GAMMA  = 'scale'   # gamma = 1 / (n_features * X.var())
+
+2. face_pose_classifier.py
+# 正臉範圍刻意設寬：只有頭部明顯轉動才歸入四個側臉象限
+YAW_THRESH   = 0.30   # 水平轉角絕對值超過此值才算偏左/偏右
+PITCH_THRESH = 0.15   # Z 軸縱傾絕對值超過此值才算偏上/偏下
+
+[face_pose_classifier.py] : Ln 172, (直接移植 p11)  Signed Yaw / Pitch → 五類姿態分類（0~4）
+ .. def _computeSignedYaw(Landmarks3D: np.ndarray) -> float:  #左,右轉,Yaw 這看能否用print一些資料出來
+ .. def _computeSignedPitch(Landmarks3D: np.ndarray) -> float:	#垂直傾角, Pitch
+ 
+[MediaPipe資料接收後的處理程序有二個,處理模式不一樣]
+這兩個模組是完全獨立的管線，各自接收同一份原始 MediaPipe landmarks，互不影響：
+
+  MediaPipe Landmarks3D (原始)
+          │
+          ├──→ face_feature_3d.py   → 旋轉矩陣 + 除臉寬 → 325 維特徵 → SVM (有做顴骨歸一化)
+          │
+          └──→ face_pose_classifier.py → 直接算 Yaw/Pitch → 姿態分類 (沒做顴骨歸一化)
+
+  face_feature_3d.py 的歸一化結果（325 維向量）不會回傳給 face_pose_classifier.py。後者拿到的永遠是 MediaPipe
+  的原始座標。
+
+  可以從 face_recognizer.py 的呼叫順序看到：
+
+  # face_recognizer.py  AddSample / Predict 裡
+  Vec = extractFeatures3D(Landmarks3D)          # ← face_feature_3d.py 的結果
+  PoseCat, Yaw, Pitch = classifyPoseWithValues(Landmarks3D)  # ← 原始 Landmarks3D
+
+  兩個函式都拿同一份原始 Landmarks3D，分別做自己的事，互相看不到對方的中間結果。
+
+  所以 face_pose_classifier.py 除以 FaceHeight
+  未做歸一化，所以必要時要做歸一化。
