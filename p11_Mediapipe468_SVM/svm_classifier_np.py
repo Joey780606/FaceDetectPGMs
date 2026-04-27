@@ -22,13 +22,13 @@ from sklearn.svm import LinearSVC
 from sklearn.exceptions import ConvergenceWarning
 
 # 信心度閾值預設值（sigmoid 值，低於此值 → Unknown）
-SVM_UNKNOWN_THRESH = 0.20
+SVM_UNKNOWN_THRESH = 0.50
 
 # 分差閾值預設值（多人模式：top-1 與 top-2 原始分差低於此值 → Unknown）
 SVM_MARGIN_THRESH = 0.50
 
 # 餘弦驗證閾值預設值（預設關閉，-1.0 表示永不觸發）
-COSINE_VERIFY_THRESH = -1.0
+COSINE_VERIFY_THRESH = 0.2
 
 # KNN 驗證參數
 KNN_K              = 5     # 比對最近 K 個訓練樣本

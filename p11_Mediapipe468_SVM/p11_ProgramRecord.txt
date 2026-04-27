@@ -8,7 +8,7 @@
 標記區: (不懂,要看)
 = = = = = =
 [程式記錄]
-face_feature_3d.py : Ln 174, 取圖,轉正(姿態正規化),找點,正規化, 325 維特徵萃取
+[face_feature_3d.py] : Ln 174, 取圖,轉正(姿態正規化),找點,正規化, 325 維特徵萃取
   def extractFeatures3D(Landmarks3D: np.ndarray) //(不懂,要看)
     1. 旋轉正規化 → 萃取 → 回傳 325 維向量
 	2. # Part B：各關鍵點到鼻尖的正規化距離（‖v_i‖ / 臉部寬度）
@@ -224,8 +224,8 @@ face_feature_3d.py >>  def extractFeatures3D(Landmarks3D: np.ndarray)
   
 [可思考的地方]
 1. 有沒有辦法由前frame和後frame來判斷是否為同一人?在正臉才detect,若發現臉轉動的太多,但確定是同一個人,此時就不要再detect,避免偵測有誤? (OK)
-2. MediaPipe提供的資料,有無468個有那些是虛擬出來的?或是有什麼資訊表示臉的關鍵部分已看不到,或已經不精準?
-3. 能否從We
+2. MediaPipe提供的資料,有無468個有那些是虛擬出來的?或是有什麼資訊表示臉的關鍵部分已看不到,或已經不精準? (可以試調)
+3. 換個角度試,確認是Joey,幫忙測若是我轉角度,歪頭時,MediaPipe算出的468點(或25點,325角跟目前存的值,差異有多大?)
 
 
 <<除了利用歸一化外,臉部座標還有做什麼處理?>>
@@ -404,4 +404,14 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
 在 detect() 調用時加上 timestamp_ms 參數
 這樣既能跨幀追蹤改善連貫性，代碼也更簡潔。LIVE_STREAM 主要用於效能優化（非同步不卡主線程），對精準度沒有額外幫助。
 
-
+[face_feature_3d.py] : Ln 174, 取圖,轉正(姿態正規化),找點,正規化, 325 維特徵萃取
+ .. from itertools import combinations
+ .. _PAIRS = np.array(list(combinations(range(len(_KEY_INDICES)), 2)), dtype=int)
+ .. MIN_FACE_WIDTH = 1e-5
+ .. if Landmarks3D.shape != (468, 3):
+ .. Centered = Landmarks3D - NoseTip  #這是全468點全對 NoseTip相減嗎?
+ .. Canonical = (R.T @ Centered.T).T 
+ .. 像 x, y, z這樣的資料就叫向量嗎?
+ .. NormDists = np.linalg.norm(Vecs, axis=1) / FaceWidth    # shape=(25,)
+ .. VecNorms = np.linalg.norm(Vecs, axis=1, keepdims=True) #下面三行都不懂
+ .. CosMat = np.clip(UnitVecs @ UnitVecs.T, -1.0, 1.0) #下面三行都不懂
