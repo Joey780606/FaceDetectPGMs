@@ -38,7 +38,7 @@ POSE_NAMES_EN = ['Ctr',  'LU',  'RU',   'LD',   'RD']   # OpenCV putText 用
 # ── 判斷閾值 ──────────────────────────────────────────────────────────────────
 # 正臉範圍刻意設寬：只有頭部明顯轉動才歸入四個側臉象限
 YAW_THRESH   = 0.30   # 水平轉角絕對值超過此值才算偏左/偏右
-PITCH_THRESH = 0.15   # Z 軸縱傾絕對值超過此值才算偏上/偏下
+PITCH_THRESH = 0.05   # Z 軸縱傾絕對值超過此值才算偏上/偏下
 
 
 def _computeSignedYaw(Landmarks3D: np.ndarray) -> float:
@@ -87,8 +87,8 @@ def _computeSignedPitch(Landmarks3D: np.ndarray) -> float:
         ForeheadZ = float(Landmarks3D[10,  2])
         ChinZ     = float(Landmarks3D[152, 2])
         FaceHeight = ChinY - ForeheadY
-        if abs(FaceHeight) < 1e-5:
-            return 0.0
+        if abs(FaceHeight) < 1e-5:  # 避免圖的資料有錯(因為實際上不可能下巴和額頭在相同Y的位置
+            return 0.0  # 這種情況下無法計算傾角，直接回傳 0（當作正臉）, 也避免下行除以零造成錯誤
         return (ChinZ - ForeheadZ) / FaceHeight
     except Exception:
         return 0.0
