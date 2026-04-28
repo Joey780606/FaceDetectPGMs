@@ -38,6 +38,8 @@ DETECT_NONE_DETECT_TARGET = 10     # 滑動窗口多數決所需幀數
 STABLE_FACE_IOU_THRESH    = 0.35   # 穩定臉追蹤：IoU 超過此值視為同一張臉
 STABLE_FACE_CENTER_THRESH = 0.50   # 中心點距離 < 臉寬 × 此比例也視為同一張臉（歪頭 fallback）
 STABLE_FACE_MAX_MISS      = 10     # 連續幾個 tick 偵測不到臉後清除穩定結果
+STABLE_FACE_CLEAR_THRESH  = -0.30  # 正臉 Unknown 時，分數低於此值才真正清快取；
+                                   # 介於此值與 0 之間（邊界模糊）→ 沿用快取
 StealEatStep              = True   # True = 啟用正臉穩定追蹤；False = 停用
 
 
@@ -549,9 +551,10 @@ class MainApp(customtkinter.CTk):
 
         if StealEatStep:
             # 穩定臉追蹤（p11 StealEatStep + Roll 延伸）：
-            #   正臉且頭直立（Yaw/Pitch/Roll 均在閾值內）辨識成功 → 更新快取
-            #   正臉且頭直立 Unknown → 清除快取（避免殘留前一人身份）
-            #   側臉 OR 歪頭（Roll 超標） → IoU 符合時沿用正臉快取，名稱不閃爍
+            #   正臉且頭直立，認識           → 更新快取
+            #   正臉且頭直立，Unknown 且分數 < STABLE_FACE_CLEAR_THRESH → 真的不認識，清快取
+            #   正臉且頭直立，Unknown 但分數 ≥ STABLE_FACE_CLEAR_THRESH → 邊界模糊，沿用快取
+            #   側臉 OR 歪頭（Roll 超標）    → IoU/中心距離符合時沿用快取
             StableResults = []
             for R in Results:
                 Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll = R
@@ -559,13 +562,26 @@ class MainApp(customtkinter.CTk):
                 IsFrontal  = (PoseCat == POSE_FRONTAL) and not IsRolled
                 if IsFrontal:
                     if Name != "Unknown":
+                        # 正臉認識 → 更新快取
                         self._StableFace     = ((Top, Right, Bottom, Left), Name, Conf)
                         self._StableFaceMiss = 0
-                    else:
-                        # 正臉直立 Unknown → 清除快取，避免殘留前一人身份
+                        StableResults.append(R)
+                    elif Conf < STABLE_FACE_CLEAR_THRESH:
+                        # 分數夠負（真的不認識）→ 清快取
                         self._StableFace     = None
                         self._StableFaceMiss = 0
-                    StableResults.append(R)
+                        StableResults.append(R)
+                    elif (self._StableFace is not None and
+                          self._isSameFace((Top, Right, Bottom, Left), self._StableFace[0])):
+                        # 邊界模糊（score 介於 CLEAR_THRESH ~ 0）且同一張臉 → 沿用快取
+                        _, StableName, StableConf = self._StableFace
+                        StableResults.append(
+                            (Top, Right, Bottom, Left, StableName, StableConf,
+                             PoseCat, Yaw, Pitch, Roll)
+                        )
+                    else:
+                        # 邊界模糊但無快取或臉位置差異大 → 顯示 Unknown，不動快取
+                        StableResults.append(R)
                     print("[MainApp] Normal face")
                 else:
                     # 側臉或歪頭：快取存在且判定為同一張臉（IoU 或中心距離）→ 沿用正臉結果
