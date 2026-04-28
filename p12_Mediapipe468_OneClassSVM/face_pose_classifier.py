@@ -38,7 +38,8 @@ POSE_NAMES_EN = ['Ctr',  'LU',  'RU',   'LD',   'RD']   # OpenCV putText 用
 # ── 判斷閾值 ──────────────────────────────────────────────────────────────────
 # 正臉範圍刻意設寬：只有頭部明顯轉動才歸入四個側臉象限
 YAW_THRESH   = 0.30   # 水平轉角絕對值超過此值才算偏左/偏右
-PITCH_THRESH = 0.05   # Z 軸縱傾絕對值超過此值才算偏上/偏下
+PITCH_THRESH = 0.15   # Z 軸縱傾絕對值超過此值才算偏上/偏下
+ROLL_THRESH  = 0.15   # 歪頭角度閾值（弧度，≈ 8.6°）；超過視為歪頭，套用穩定臉快取
 
 
 def _computeSignedYaw(Landmarks3D: np.ndarray) -> float:
@@ -94,6 +95,29 @@ def _computeSignedPitch(Landmarks3D: np.ndarray) -> float:
         return 0.0
 
 
+def _computeRoll(Landmarks3D: np.ndarray) -> float:
+    """
+    計算有符號的橫滾角（Roll），使用左右顴骨連線相對水平的弧度。
+
+    利用左顴骨（index 234）→ 右顴骨（index 454）連線在螢幕 x-y 平面的傾角：
+      Roll ≈ 0  → 頭部直立
+      Roll > 0  → 頭向右傾（右耳朝下）
+      Roll < 0  → 頭向左傾（左耳朝下）
+
+    Returns
+    -------
+    float，弧度值
+    """
+    try:
+        Dx = float(Landmarks3D[454, 0] - Landmarks3D[234, 0])
+        Dy = float(Landmarks3D[454, 1] - Landmarks3D[234, 1])
+        if abs(Dx) < 1e-8 and abs(Dy) < 1e-8:
+            return 0.0
+        return float(np.arctan2(Dy, Dx))
+    except Exception:
+        return 0.0
+
+
 def classifyPose(Landmarks3D: np.ndarray) -> int:
     """
     依 468 個 3D landmark 判斷頭部姿態類別（0~4）。
@@ -131,15 +155,16 @@ def classifyPose(Landmarks3D: np.ndarray) -> int:
 
 def classifyPoseWithValues(Landmarks3D: np.ndarray) -> tuple:
     """
-    判斷姿態類別，同時回傳原始 Yaw/Pitch 數值（供 UI 顯示與閾值除錯）。
+    判斷姿態類別，同時回傳原始 Yaw / Pitch / Roll 數值（供 UI 顯示與閾值除錯）。
 
     Returns
     -------
-    (PoseCat: int, SignedYaw: float, SignedPitch: float)
+    (PoseCat: int, SignedYaw: float, SignedPitch: float, Roll: float)
     """
     try:
         Yaw   = _computeSignedYaw(Landmarks3D)
         Pitch = _computeSignedPitch(Landmarks3D)
+        Roll  = _computeRoll(Landmarks3D)
 
         if abs(Yaw) < YAW_THRESH and abs(Pitch) < PITCH_THRESH:
             Cat = POSE_FRONTAL
@@ -152,9 +177,9 @@ def classifyPoseWithValues(Landmarks3D: np.ndarray) -> tuple:
         else:
             Cat = POSE_RIGHT_DOWN
 
-        return Cat, Yaw, Pitch
+        return Cat, Yaw, Pitch, Roll
     except Exception:
-        return POSE_FRONTAL, 0.0, 0.0
+        return POSE_FRONTAL, 0.0, 0.0, 0.0
 
 
 def getSignedYawPitch(Landmarks3D: np.ndarray) -> tuple:
