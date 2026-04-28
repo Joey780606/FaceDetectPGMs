@@ -165,7 +165,8 @@ class SvmClassifier:
 
     def predict(self, X: np.ndarray,
                 Thresholds: np.ndarray = None,
-                MarginThresholds: np.ndarray = None) -> tuple:
+                MarginThresholds: np.ndarray = None,
+                PoseLabels: list = None) -> tuple:
         """
         預測人名與信心度。
 
@@ -174,6 +175,7 @@ class SvmClassifier:
         X               : shape (n_samples, n_features)
         Thresholds      : shape (n_samples,)，可選
         MarginThresholds: shape (n_samples,)，可選
+        PoseLabels      : list[str]，可選，每筆樣本對應的姿態描述字串（供 print 用）
 
         Returns
         -------
@@ -185,6 +187,7 @@ class SvmClassifier:
         for i, x in enumerate(X):
             Thresh       = float(Thresholds[i])       if Thresholds       is not None else self._Threshold
             MarginThresh = float(MarginThresholds[i]) if MarginThresholds is not None else self._MarginThresh
+            PoseLabel    = PoseLabels[i] if PoseLabels is not None else ""
 
             # ── 前處理（與訓練相同）──────────────────────────────────────────
             xz   = (x - self._GlobalMean) / self._GlobalStd
@@ -195,6 +198,8 @@ class SvmClassifier:
                 continue
             xn = xz / Norm
 
+            PoseTag = f"[{PoseLabel}] " if PoseLabel else ""
+
             if self._SinglePersonMode:
                 # ── 單人模式：最大 Cosine 相似度 ─────────────────────────────
                 Sims   = self._SingleVecs @ xn
@@ -203,7 +208,7 @@ class SvmClassifier:
                 Name   = self._ClassNames[0] if Conf >= Thresh else "Unknown"
 
                 Tag = f"[SVM-1P/{self._Label}]" if self._Label else "[SVM-1P]"
-                print(f"{Tag} 最大cosine={MaxSim:.3f}"
+                print(f"{Tag} {PoseTag}最大cosine={MaxSim:.3f}"
                       f"  sigmoid={Conf:.3f}(閾{Thresh:.2f})"
                       f"  → {Name}", end="")
             else:
@@ -240,7 +245,7 @@ class SvmClassifier:
                 )
                 Tag       = f"[SVM/{self._Label}]" if self._Label else "[SVM]"
                 RejectStr = f"  ✗{Reject}" if Reject else ""
-                print(f"{Tag} Scores=[{ScoreStr}]"
+                print(f"{Tag} {PoseTag}Scores=[{ScoreStr}]"
                       f"  margin={Margin:.2f}(閾{MarginThresh:.2f})"
                       f"  sigmoid={Conf:.3f}(閾{Thresh:.2f})"
                       f"  → {Name}{RejectStr}", end="")

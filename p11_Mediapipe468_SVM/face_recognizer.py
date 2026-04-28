@@ -366,10 +366,20 @@ class FaceRecognizer:
                 AdjThresh       = (self._Threshold - 0.1
                                    if IsNonFrontal else self._Threshold)
                 AdjMarginThresh = (0.0 if IsNonFrontal else self._MarginThresh)
+
+                # 組合姿態描述字串（供 predict print 用）
+                if not IsNonFrontal:
+                    PoseLabel = "正臉"
+                elif abs(Roll) > ROLL_THRESH:
+                    PoseLabel = f"歪頭 R:{Roll:+.2f}"
+                else:
+                    PoseLabel = f"{POSE_NAMES[PoseCat]} Y:{Yaw:+.2f}"
+
                 Names, Confs = self._Classifier.predict(
                     np.array([Vec]),
                     Thresholds=np.array([AdjThresh]),
-                    MarginThresholds=np.array([AdjMarginThresh])
+                    MarginThresholds=np.array([AdjMarginThresh]),
+                    PoseLabels=[PoseLabel]
                 )
                 Name = Names[0]
                 Conf = float(Confs[0])
