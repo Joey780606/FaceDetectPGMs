@@ -25,7 +25,7 @@ import tkinter.messagebox as MsgBox
 import tkinter.filedialog as FileDialog
 
 from face_recognizer import FaceRecognizer, UNKNOWN_CLASS
-from face_pose_classifier import POSE_NAMES, POSE_NAMES_EN
+from face_pose_classifier import POSE_NAMES, POSE_NAMES_EN, POSE_FRONTAL, ROLL_THRESH
 from svm_classifier_np import SVM_UNKNOWN_THRESH, SVM_MARGIN_THRESH, COSINE_VERIFY_THRESH
 
 # ── 應用程式常數 ──────────────────────────────────────────────────────────────
@@ -37,9 +37,10 @@ UI_REFRESH_MS         = 30     # webcam 畫面更新間隔（毫秒）
 LEARN_TICK_MS         = 500    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
 DETECT_TICK_MS        = 300    # 偵測時每次推論的間隔
 DETECT_NONE_DETECT_TARGET = 10  # 滑動窗口多數決所需幀數
-STABLE_FACE_IOU_THRESH    = 0.35 # 穩定臉追蹤：bounding box IoU 超過此值視為同一張臉
-STABLE_FACE_MAX_MISS      = 10   # 連續幾個 tick 偵測不到臉後清除穩定結果
-StealEatStep              = True # True = 啟用正臉穩定追蹤（非正統方案）；False = 停用
+STABLE_FACE_IOU_THRESH    = 0.35   # 穩定臉追蹤：bounding box IoU 超過此值視為同一張臉
+STABLE_FACE_CENTER_THRESH = 0.50   # 中心點距離 < 臉寬 × 此比例也視為同一張臉（歪頭 fallback）
+STABLE_FACE_MAX_MISS      = 10     # 連續幾個 tick 偵測不到臉後清除穩定結果
+StealEatStep              = True   # True = 啟用正臉穩定追蹤；False = 停用
 
 
 # ==============================================================================
@@ -401,11 +402,14 @@ class MainApp(customtkinter.CTk):
         self._TxtLog.configure(state="disabled")
 
     def _UpdatePoseLabel(self, PoseCat: int,
-                         Yaw: float = None, Pitch: float = None) -> None:
-        """更新姿態即時顯示標籤（訓練與偵測共用）。附帶 Yaw/Pitch 原始值供調閾值參考。"""
+                         Yaw: float = None, Pitch: float = None,
+                         Roll: float = None) -> None:
+        """更新姿態即時顯示標籤（訓練與偵測共用）。附帶 Yaw/Pitch/Roll 原始值供調閾值參考。"""
         try:
             PoseName = POSE_NAMES[PoseCat] if 0 <= PoseCat < len(POSE_NAMES) else "---"
-            if Yaw is not None and Pitch is not None:
+            if Yaw is not None and Pitch is not None and Roll is not None:
+                Text = f"姿態：{PoseName} (Y:{Yaw:+.2f} P:{Pitch:+.2f} R:{Roll:+.2f})"
+            elif Yaw is not None and Pitch is not None:
                 Text = f"姿態：{PoseName} (Y:{Yaw:+.2f} P:{Pitch:+.2f})"
             else:
                 Text = f"姿態：{PoseName}"
@@ -451,7 +455,7 @@ class MainApp(customtkinter.CTk):
         已知人物用綠框，Unknown 用紅框，框內顯示姓名、信心度與姿態。
         """
         DrawFrame = Frame.copy()
-        for Top, Right, Bottom, Left, Name, Confidence, PoseCat, _Yaw, _Pitch in Detections:
+        for Top, Right, Bottom, Left, Name, Confidence, PoseCat, _Yaw, _Pitch, _Roll in Detections:
             Color     = (0, 255, 0) if Name != "Unknown" else (0, 0, 255)
             PoseShort = POSE_NAMES_EN[PoseCat] if 0 <= PoseCat < len(POSE_NAMES_EN) else "?"
             cv2.rectangle(DrawFrame, (Left, Top), (Right, Bottom), Color, 2)
@@ -554,24 +558,32 @@ class MainApp(customtkinter.CTk):
             return
 
         if StealEatStep:
-            # 對每個偵測結果套用穩定追蹤：正臉成功→更新快取；非正臉→嘗試沿用快取
+            # 穩定臉追蹤（StealEatStep + Roll 延伸）：
+            #   正臉且頭直立（Roll 未超標）辨識成功 → 更新快取
+            #   正臉且頭直立 Unknown → 清除快取（避免殘留前一人身份）
+            #   側臉 OR 歪頭（Roll 超標） → 判定同一張臉時沿用正臉快取
             StableResults = []
             for R in Results:
-                Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch = R
-                from face_pose_classifier import POSE_FRONTAL as _PF
-                if PoseCat == _PF:
-                    if Name not in ("Unknown",):
+                Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll = R
+                IsRolled  = abs(Roll) > ROLL_THRESH
+                IsFrontal = (PoseCat == POSE_FRONTAL) and not IsRolled
+                if IsFrontal:
+                    if Name != "Unknown":
                         self._StableFace     = ((Top, Right, Bottom, Left), Name, Conf)
+                        self._StableFaceMiss = 0
+                    else:
+                        # 正臉直立 Unknown → 清除快取，避免殘留前一人身份
+                        self._StableFace     = None
                         self._StableFaceMiss = 0
                     StableResults.append(R)
                 else:
+                    # 側臉或歪頭：快取存在且判定為同一張臉（IoU 或中心距離）→ 沿用正臉結果
                     if self._StableFace is not None:
                         StableBbox, StableName, StableConf = self._StableFace
-                        Iou = self._computeIoU((Top, Right, Bottom, Left), StableBbox)
-                        if Iou >= STABLE_FACE_IOU_THRESH:
+                        if self._isSameFace((Top, Right, Bottom, Left), StableBbox):
                             StableResults.append(
                                 (Top, Right, Bottom, Left, StableName, StableConf,
-                                 PoseCat, Yaw, Pitch)
+                                 PoseCat, Yaw, Pitch, Roll)
                             )
                         else:
                             StableResults.append(R)
@@ -586,9 +598,10 @@ class MainApp(customtkinter.CTk):
             PoseCat = BestResult[6]
             Yaw     = BestResult[7]
             Pitch   = BestResult[8]
+            Roll    = BestResult[9]
 
             # 即時更新姿態顯示（含原始數值）
-            self._UpdatePoseLabel(PoseCat, Yaw, Pitch)
+            self._UpdatePoseLabel(PoseCat, Yaw, Pitch, Roll)
 
             # 滑動窗口多數決
             self._DetectNoneDtNames.append(Name)
@@ -628,6 +641,40 @@ class MainApp(customtkinter.CTk):
         AreaB     = max(0, RightB - LeftB) * max(0, BottomB - TopB)
         UnionArea = AreaA + AreaB - InterArea
         return InterArea / UnionArea if UnionArea > 0 else 0.0
+
+    @staticmethod
+    def _isSameFace(BboxA: tuple, BboxB: tuple) -> bool:
+        """
+        判斷兩個 bounding box 是否為同一張臉。
+        先用 IoU，IoU 不足時再用中心點距離作 fallback。
+        歪頭時 IoU 因 box 形狀改變而降低，但臉的中心點幾乎不動，
+        因此中心距離比 IoU 更適合用於 Roll 情境。
+        """
+        TopA, RightA, BottomA, LeftA = BboxA
+        TopB, RightB, BottomB, LeftB = BboxB
+
+        InterTop    = max(TopA, TopB)
+        InterLeft   = max(LeftA, LeftB)
+        InterBottom = min(BottomA, BottomB)
+        InterRight  = min(RightA, RightB)
+        InterArea = max(0, InterRight - InterLeft) * max(0, InterBottom - InterTop)
+        AreaA     = max(0, RightA - LeftA) * max(0, BottomA - TopA)
+        AreaB     = max(0, RightB - LeftB) * max(0, BottomB - TopB)
+        UnionArea = AreaA + AreaB - InterArea
+        Iou = InterArea / UnionArea if UnionArea > 0 else 0.0
+        if Iou >= STABLE_FACE_IOU_THRESH:
+            return True
+
+        # 中心點距離 fallback（歪頭時 IoU 易低估，但中心點幾乎不動）
+        CxA = (LeftA + RightA) / 2
+        CyA = (TopA  + BottomA) / 2
+        CxB = (LeftB + RightB) / 2
+        CyB = (TopB  + BottomB) / 2
+        FaceSize = max(RightA - LeftA, BottomA - TopA)
+        if FaceSize < 1:
+            return False
+        Dist = ((CxA - CxB) ** 2 + (CyA - CyB) ** 2) ** 0.5
+        return (Dist / FaceSize) < STABLE_FACE_CENTER_THRESH
 
     # ──────────────────────────────────────────────────────────────────────────
     # 學習功能

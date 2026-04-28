@@ -21,7 +21,7 @@ import numpy as np
 from mp_face_landmarker import MpFaceLandmarker
 from face_feature_3d import extractFeatures3D
 from face_pose_classifier import (classifyPoseWithValues,
-                                  POSE_FRONTAL, POSE_NAMES)
+                                  POSE_FRONTAL, POSE_NAMES, ROLL_THRESH)
 from svm_classifier_np import (SvmClassifier, SVM_UNKNOWN_THRESH,
                                SVM_MARGIN_THRESH, COSINE_VERIFY_THRESH)
 
@@ -240,7 +240,7 @@ class FaceRecognizer:
                 Vec = extractFeatures3D(Landmarks3D)
                 if Vec is None:
                     continue
-                PoseCat, Yaw, Pitch = classifyPoseWithValues(Landmarks3D)
+                PoseCat, Yaw, Pitch, _Roll = classifyPoseWithValues(Landmarks3D)
                 LastPoseCat = PoseCat
                 LastYaw     = Yaw
                 LastPitch   = Pitch
@@ -308,7 +308,7 @@ class FaceRecognizer:
                             Vec = extractFeatures3D(Landmarks3D)
                             if Vec is None:
                                 continue
-                            PoseCat, _, _ = classifyPoseWithValues(Landmarks3D)
+                            PoseCat, _, _, _ = classifyPoseWithValues(Landmarks3D)
                             if PoseCat not in self._Samples[PersonName]:
                                 self._Samples[PersonName][PoseCat] = []
                             self._Samples[PersonName][PoseCat].append(Vec)
@@ -344,7 +344,7 @@ class FaceRecognizer:
 
         Returns
         -------
-        list of (Top, Right, Bottom, Left, Name, Confidence, PoseCat, Yaw, Pitch)
+        list of (Top, Right, Bottom, Left, Name, Confidence, PoseCat, Yaw, Pitch, Roll)
         """
         Results = []
         try:
@@ -360,14 +360,12 @@ class FaceRecognizer:
                 if Vec is None:
                     continue
 
-                PoseCat, Yaw, Pitch = classifyPoseWithValues(Landmarks3D)
-                # 側臉：sigmoid 閾值 -0.1；margin 閾值設 0.0（停用分差檢查）
+                PoseCat, Yaw, Pitch, Roll = classifyPoseWithValues(Landmarks3D)
+                # 側臉或歪頭：信心度閾值 -0.1；margin 閾值設 0.0（停用分差檢查）
+                IsNonFrontal    = (PoseCat != POSE_FRONTAL) or (abs(Roll) > ROLL_THRESH)
                 AdjThresh       = (self._Threshold - 0.1
-                                   if PoseCat != POSE_FRONTAL
-                                   else self._Threshold)
-                AdjMarginThresh = (0.0
-                                   if PoseCat != POSE_FRONTAL
-                                   else self._MarginThresh)
+                                   if IsNonFrontal else self._Threshold)
+                AdjMarginThresh = (0.0 if IsNonFrontal else self._MarginThresh)
                 Names, Confs = self._Classifier.predict(
                     np.array([Vec]),
                     Thresholds=np.array([AdjThresh]),
@@ -378,7 +376,7 @@ class FaceRecognizer:
 
                 Top, Right, Bottom, Left = BoundingBox
                 Results.append((Top, Right, Bottom, Left,
-                                Name, Conf, PoseCat, Yaw, Pitch))
+                                Name, Conf, PoseCat, Yaw, Pitch, Roll))
 
         except Exception as Error:
             print(f"[FaceRecognizer] Predict 失敗：{Error}")
