@@ -18,7 +18,7 @@ svm_classifier_np.py
 
 import numpy as np
 import warnings
-from sklearn.svm import LinearSVC
+from sklearn.svm import LinearSVC, OneClassSVM
 from sklearn.exceptions import ConvergenceWarning
 
 # 信心度閾值預設值（sigmoid 值，低於此值 → Unknown）
@@ -39,13 +39,21 @@ KNN_VERIFY_ENABLED = False # True = 開啟 KNN 驗證；False = 關閉
 SVM_C_PARAM  = 500   # 正則化強度（C = 1/(2λ)，λ=0.001 → C=500，大邊距）
 SVM_MAX_ITER = 2000  # liblinear 最大迭代次數
 
+# OneClassSVM 二階段驗證超參數
+OC_SVM_ENABLED     = True  # True = 啟用；False = 停用 OC-SVM 二階段驗證
+OC_SVM_NU          = 0.05  # 異常比例（nu 越小邊界越緊，0.05 = 容許 5% 訓練樣本視為異常）
+OC_SVM_MIN_SAMPLES = 5     # 至少需要此筆數才對該人訓練 OC-SVM
+
+# LinearSVC/cosine 視為 Unknown 的名稱集合，OC-SVM 跳過不驗證
+_OC_SKIP_NAMES = {"Unknown", "Unknown."}
 
 class SvmClassifier:
     """
     線性 SVM 人臉分類器。
     多人模式：sklearn LinearSVC OvR（liblinear，精確解）。
     單人模式：最大 Cosine 相似度比對。
-    兩種模式均在 predict 後可選餘弦驗證與 KNN 驗證。
+    第一階段辨識後，以各人 OneClassSVM 做二階段驗證（OC_SVM_ENABLED 控制開關）。
+    後接可選的餘弦驗證與 KNN 驗證。
     """
 
     def __init__(self, Threshold: float = SVM_UNKNOWN_THRESH,
@@ -69,6 +77,7 @@ class SvmClassifier:
         self._ClassMeans     = {}     # {人名: 正規化平均向量 shape (D,)}
         self._ClassVecs      = {}     # {人名: 正規化訓練向量矩陣 shape (N, D)}
         self._ClassKnnThresh = {}     # {人名: KNN 距離閾值}
+        self._OcSvms         = {}     # {人名: OneClassSVM 物件}（二階段驗證）
         self._SinglePersonMode = False
         self._IsTrained        = False
 
@@ -133,6 +142,22 @@ class SvmClassifier:
             NClasses = len(self._ClassNames)
             D        = Xnorm.shape[1]
 
+            # ── 各人 OneClassSVM 訓練（二階段驗證用，跳過 Unknown 類） ───────────
+            self._OcSvms = {}
+            if OC_SVM_ENABLED:
+                for Name in self._ClassNames:
+                    if Name in _OC_SKIP_NAMES:
+                        continue
+                    ClassVecs = self._ClassVecs[Name]
+                    if len(ClassVecs) < OC_SVM_MIN_SAMPLES:
+                        print(f"  OC-SVM[{Name}]: 樣本不足"
+                              f"({len(ClassVecs)}<{OC_SVM_MIN_SAMPLES})，跳過")
+                        continue
+                    OcSvm = OneClassSVM(kernel='rbf', nu=OC_SVM_NU, gamma='scale')
+                    OcSvm.fit(ClassVecs)
+                    self._OcSvms[Name] = OcSvm
+                    print(f"  OC-SVM[{Name}]: 訓練完成 ({len(ClassVecs)} 筆)")
+            
             # ── 單人模式：儲存訓練向量，推論時用最大 Cosine 相似度 ──────────────
             if NClasses == 1:
                 self._SingleVecs       = Xnorm.copy()
@@ -258,6 +283,17 @@ class SvmClassifier:
                     Name = "Unknown"
                 else:
                     print(f"  cos={VerifyCos:.3f}", end="")
+
+            # ── OC-SVM 二階段驗證 ────────────────────────────────────────────
+            if OC_SVM_ENABLED and Name not in _OC_SKIP_NAMES and Name in self._OcSvms:
+                Xq     = xn.reshape(1, -1)
+                OcPred = int(self._OcSvms[Name].predict(Xq)[0])
+                OcScore = float(self._OcSvms[Name].decision_function(Xq)[0])
+                if OcPred == -1:
+                    print(f"  ✗OC-SVM[{Name}](score={OcScore:.3f}) → Unknown", end="")
+                    Name = "Unknown"
+                else:
+                    print(f"  ✓OC-SVM[{Name}](score={OcScore:.3f})", end="")
 
             # ── KNN 驗證（預設關閉）──────────────────────────────────────────
             if KNN_VERIFY_ENABLED and Name != "Unknown" and Name in self._ClassVecs:
