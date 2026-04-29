@@ -15,7 +15,7 @@ main.py  (p11)
 import os
 import threading
 import time
-from collections import Counter
+from collections import Counter, deque
 
 import cv2
 import numpy as np
@@ -35,7 +35,7 @@ LEARN_TIMEOUT_SECONDS = 120    # 學習模式最長等待時間（秒）
 #LEARN_TIMEOUT_SECONDS = 40    # 學習模式最長等待時間（秒）
 UI_REFRESH_MS         = 30     # webcam 畫面更新間隔（毫秒）
 LEARN_TICK_MS         = 200    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
-DETECT_TICK_MS        = 300    # 偵測時每次推論的間隔
+DETECT_TICK_MS        = 250    # 偵測時每次推論的間隔
 DETECT_NONE_DETECT_TARGET = 10  # 滑動窗口多數決所需幀數
 STABLE_FACE_IOU_THRESH    = 0.35   # 穩定臉追蹤：bounding box IoU 超過此值視為同一張臉
 STABLE_FACE_CENTER_THRESH = 0.50   # 中心點距離 < 臉寬 × 此比例也視為同一張臉（歪頭 fallback）
@@ -131,6 +131,11 @@ class MainApp(customtkinter.CTk):
         # 穩定臉追蹤：正臉辨識成功後暫存，非正臉 frame 以 IoU 判斷是否沿用
         self._StableFace     = None  # (bbox, name, conf) 最近一次正臉辨識結果
         self._StableFaceMiss = 0     # 連續偵測不到臉的 tick 計數
+
+        # ReliableBuffer：累積正臉時 LinearSVC（OC-SVM 驗證前）的辨識結果
+        # 當 OC-SVM 拒絕（Unknown）時，以此 buffer 中最多票數的人名作為 fallback
+        # 人臉離開 webcam（miss 超限或 bbox 差異過大）時自動清空
+        self._ReliableBuffer = deque(maxlen=200)  # 保留最近 200 次正臉 LinearSVC 結果
 
         # 人臉偵測結果快取（供 _UpdateWebcamView 繪製框）
         self._LastDetections = []
@@ -455,7 +460,7 @@ class MainApp(customtkinter.CTk):
         已知人物用綠框，Unknown 用紅框，框內顯示姓名、信心度與姿態。
         """
         DrawFrame = Frame.copy()
-        for Top, Right, Bottom, Left, Name, Confidence, PoseCat, _Yaw, _Pitch, _Roll in Detections:
+        for Top, Right, Bottom, Left, Name, Confidence, PoseCat, _Yaw, _Pitch, _Roll, _PreVerifyName in Detections:
             Color     = (0, 255, 0) if Name != "Unknown" else (0, 0, 255)
             PoseShort = POSE_NAMES_EN[PoseCat] if 0 <= PoseCat < len(POSE_NAMES_EN) else "?"
             cv2.rectangle(DrawFrame, (Left, Top), (Right, Bottom), Color, 2)
@@ -498,6 +503,7 @@ class MainApp(customtkinter.CTk):
             self._LastDetections    = []
             self._StableFace        = None
             self._StableFaceMiss    = 0
+            self._ReliableBuffer.clear()
             self._BtnDetectNone.configure(text="Detect", state="normal")
             self._LblDetectName.configure(text="")
             self._LblPoseStatus.configure(text="姿態：---")
@@ -549,31 +555,57 @@ class MainApp(customtkinter.CTk):
 
         if not Results:
             if StealEatStep:
-                # 偵測不到臉：累計 miss，超過上限後清除穩定臉快取
+                # 偵測不到臉：累計 miss，超過上限後清除穩定臉快取與 ReliableBuffer
                 self._StableFaceMiss += 1
                 if self._StableFaceMiss >= STABLE_FACE_MAX_MISS:
                     self._StableFace     = None
                     self._StableFaceMiss = 0
+                    self._ReliableBuffer.clear()
+                    print("[ReliableBuffer] 人臉消失，清空 buffer")
             self._LastDetections = []
             return
 
         if StealEatStep:
-            # 穩定臉追蹤（StealEatStep + Roll 延伸）：
-            #   正臉且頭直立（Roll 未超標）辨識成功 → 更新快取
-            #   正臉且頭直立 Unknown → 清除快取（避免殘留前一人身份）
-            #   側臉 OR 歪頭（Roll 超標） → 判定同一張臉時沿用正臉快取
+            # 穩定臉追蹤（StealEatStep + Roll 延伸）+ ReliableBuffer fallback：
+            #   正臉且頭直立 → 記錄 LinearSVC 原始結果至 buffer
+            #     - 辨識成功（非 Unknown）→ 更新穩定臉快取
+            #     - OC-SVM / 低信心 Unknown → 嘗試 buffer fallback
+            #   側臉或歪頭 → 判定同一張臉時沿用正臉快取
             StableResults = []
             for R in Results:
-                Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll = R
+                Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll, PreVerifyName = R
                 IsRolled  = abs(Roll) > ROLL_THRESH
                 IsFrontal = (PoseCat == POSE_FRONTAL) and not IsRolled
+                #print(f"12345: ov-svm {Name}, linear-svm {PreVerifyName}")
                 if IsFrontal:
+                    # 新正臉與前一次穩定臉差異過大 → 換人了，清空 buffer
+                    if (self._StableFace is not None and
+                            not self._isSameFace((Top, Right, Bottom, Left),
+                                                  self._StableFace[0])):
+                        self._ReliableBuffer.clear()
+                        print("[ReliableBuffer] 偵測到不同人臉，清空 buffer")
+
+                    # 累積 LinearSVC 正臉原始結果（只記錄非 Unknown 的有意義辨識）
+                    ###Joey if PreVerifyName not in ("Unknown", "Unknown."):
+                    self._ReliableBuffer.append(PreVerifyName)
+
                     if Name != "Unknown":
                         self._StableFace     = ((Top, Right, Bottom, Left), Name, Conf)
                         self._StableFaceMiss = 0
                     else:
-                        # 正臉直立 Unknown → 清除快取，避免殘留前一人身份
-                        self._StableFace     = None
+                        #print(f"222: ov-svm {Name}, linear-svm {PreVerifyName}, buffer={dict(Counter(self._ReliableBuffer).most_common(3))}")
+                        # OC-SVM 或低信心拒絕 → 嘗試 ReliableBuffer fallback
+                        if self._ReliableBuffer:
+                            FallbackName = Counter(self._ReliableBuffer).most_common(1)[0][0]
+                            print(f"[ReliableBuffer] Unknown → fallback={FallbackName} "
+                                  f"buffer={dict(Counter(self._ReliableBuffer).most_common(3))}")
+                            Name = FallbackName
+                            R    = (Top, Right, Bottom, Left, FallbackName, Conf,
+                                    PoseCat, Yaw, Pitch, Roll, PreVerifyName)
+                            self._StableFace     = ((Top, Right, Bottom, Left), FallbackName, Conf)
+                        else:
+                            # buffer 尚空 → 真正 Unknown，清除穩定臉快取
+                            self._StableFace = None
                         self._StableFaceMiss = 0
                     StableResults.append(R)
                 else:
@@ -583,7 +615,7 @@ class MainApp(customtkinter.CTk):
                         if self._isSameFace((Top, Right, Bottom, Left), StableBbox):
                             StableResults.append(
                                 (Top, Right, Bottom, Left, StableName, StableConf,
-                                 PoseCat, Yaw, Pitch, Roll)
+                                 PoseCat, Yaw, Pitch, Roll, PreVerifyName)
                             )
                         else:
                             StableResults.append(R)

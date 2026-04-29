@@ -375,18 +375,19 @@ class FaceRecognizer:
                 else:
                     PoseLabel = f"{POSE_NAMES[PoseCat]} Y:{Yaw:+.2f}"
 
-                Names, Confs = self._Classifier.predict(
+                Names, Confs, PreVerifyNames = self._Classifier.predict(
                     np.array([Vec]),
                     Thresholds=np.array([AdjThresh]),
                     MarginThresholds=np.array([AdjMarginThresh]),
                     PoseLabels=[PoseLabel]
                 )
-                Name = Names[0]
-                Conf = float(Confs[0])
+                Name          = Names[0]
+                Conf          = float(Confs[0])
+                PreVerifyName = PreVerifyNames[0]   # OC-SVM 驗證前的 LinearSVC 原始結果
 
                 Top, Right, Bottom, Left = BoundingBox
                 Results.append((Top, Right, Bottom, Left,
-                                Name, Conf, PoseCat, Yaw, Pitch, Roll))
+                                Name, Conf, PoseCat, Yaw, Pitch, Roll, PreVerifyName))
 
         except Exception as Error:
             print(f"[FaceRecognizer] Predict 失敗：{Error}")

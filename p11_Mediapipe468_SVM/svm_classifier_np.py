@@ -206,8 +206,9 @@ class SvmClassifier:
         -------
         (Names: list[str], Confs: np.ndarray)
         """
-        Names = []
-        Confs = []
+        Names          = []
+        Confs          = []
+        PreVerifyNames = []   # OC-SVM / cosine / KNN 驗證前的 LinearSVC 原始結果
 
         for i, x in enumerate(X):
             Thresh       = float(Thresholds[i])       if Thresholds       is not None else self._Threshold
@@ -284,6 +285,9 @@ class SvmClassifier:
                 else:
                     print(f"  cos={VerifyCos:.3f}", end="")
 
+            # OC-SVM 驗證前記錄 LinearSVC / cosine 原始決策（供 ReliableBuffer 使用）
+            PreVerifyNames.append(Name)
+
             # ── OC-SVM 二階段驗證 ────────────────────────────────────────────
             if OC_SVM_ENABLED and Name not in _OC_SKIP_NAMES and Name in self._OcSvms:
                 Xq     = xn.reshape(1, -1)
@@ -310,7 +314,7 @@ class SvmClassifier:
             Names.append(Name)
             Confs.append(max(0.0, Conf))
 
-        return Names, np.array(Confs, dtype=float)
+        return Names, np.array(Confs, dtype=float), PreVerifyNames
 
     @property
     def IsTrained(self) -> bool:
