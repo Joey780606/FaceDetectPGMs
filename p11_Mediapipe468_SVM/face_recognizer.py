@@ -12,7 +12,27 @@ face_pose_classifier 與 svm_classifier_np，實作姿態不變人臉辨識。
   訓練資料仍依姿態類別分開儲存（供 UI 顯示各角度蒐集進度），
   訓練時合併所有姿態的樣本給單一 SVM。
 
-模型儲存至 face_model.npz（純 NumPy，無 sklearn/scipy 依賴）。
+模型儲存至 face_model.npz（純 NumPy，無 sklearn/scipy 依賴）。(只有存純數字陣列,單純,只要裝numpy就能載入使用)
+  np.savez_compressed(
+      self._ModelPath,
+      X=X,       # float (N, 325)  ← 純 numpy, X[i] = 第 i 筆樣本的 325 維特徵向量（float）
+      Y=Y,       # int   (N,)      ← 純 numpy, Y[i] = persons 陣列的 index（int）. 例如 Joey=0、Henry=1、Unknown.=2，對應 persons 的順序。
+      P=P,       # int   (N,)      ← 純 numpy, P[i] = 該筆樣本的姿態類別 0~4（int）. 0=正臉、1=左上、2=右上、3=左下、4=右下。
+      persons=persons  # object array    ← 純 numpy, persons = np.array(['Joey', 'Henry', 'Unknown.'], dtype=object)
+  )
+
+  上述 N 是樣本總數（所有人物、所有姿態的樣本數量總和）。
+
+    整體對應範例
+  ┌───────┬─────────────────┬──────┬──────┬──────────────────┐
+  │ 列(i) │      X[i]       │ Y[i] │ P[i] │       意義       │
+  ├───────┼─────────────────┼──────┼──────┼──────────────────┤
+  │ 0     │ [0.12, 0.45, …] │ 0    │ 0    │ Joey 的正臉樣本  │
+  ├───────┼─────────────────┼──────┼──────┼──────────────────┤
+  │ 1     │ [0.11, 0.43, …] │ 0    │ 0    │ Joey 的正臉樣本  │
+  ├───────┼─────────────────┼──────┼──────┼──────────────────┤
+  │ 50    │ [0.33, 0.21, …] │ 1    │ 0    │ Henry 的正臉樣本 │
+  └───────┴─────────────────┴──────┴──────┴──────────────────┘
 """
 
 import os
@@ -26,7 +46,7 @@ from svm_classifier_np import (SvmClassifier, SVM_UNKNOWN_THRESH,
                                SVM_MARGIN_THRESH, COSINE_VERIFY_THRESH)
 
 DEFAULT_MODEL_PATH = "face_model.npz"
-N_POSES = 5
+N_POSES = 5  # 預定義的姿態類別數量（POSE_FRONTAL + 4 個側臉象限）
 
 # 訓練用陌生人類別的內部名稱（末尾加句點以區別 sigmoid/margin 判出的 "Unknown"）
 UNKNOWN_CLASS = "Unknown."
@@ -43,7 +63,7 @@ class FaceRecognizer:
         self._ModelPath  = ModelPath
         self._Detector   = MpFaceLandmarker()
         # 訓練資料：{人名: {姿態類別(0~4): [特徵向量, ...]}}
-        self._Samples: dict = {}
+        self._Samples: dict = {}    # 存放訓練樣本的字典，結構為 {PersonName: {PoseCat: [Vec1, Vec2, ...]}}, 每個人在每個姿態類別下的所有特徵向量列表。
         # 單一分類器
         self._Classifier = None
         # 共用閾值
@@ -75,12 +95,42 @@ class FaceRecognizer:
 
             self._Samples = {}
             for Idx, Name in enumerate(Persons):
-                PersonMask = (Y == Idx)
-                self._Samples[str(Name)] = {}
+                PersonMask = (Y == Idx)     
+                # 找出所有屬於此人(由數字來找,由名稱對應的0,1,2(即Y)跟Idx比較的列（布林陣列）
+                # 舉例，若 Y = [0, 0, 1, 0, 1, 2]，當 Idx=0（Joey）時： PersonMask = [True, True, False, True, False, False]，表示第 0、1、3 列是 Joey 的樣本。
+                
+                self._Samples[str(Name)] = {} # 建立此人的空字典
                 for PoseCat in range(N_POSES):
                     PoseMask = PersonMask & (P == PoseCat)
                     if PoseMask.any():
                         self._Samples[str(Name)][PoseCat] = list(X[PoseMask])
+                '''
+                拆開來看
+                PersonMask  = (Y == Idx)      # 此人的所有列
+                (P == PoseCat)                 # 此姿態的所有列
+                PoseMask = PersonMask & (P == PoseCat)  # 兩者同時成立
+
+                具體範例
+                ┌─────┬──────────┬─────────┐
+                │  i  │   Y[i]   │  P[i]   │
+                ├─────┼──────────┼─────────┤
+                │ 0   │ 0(Joey)  │ 0(正臉) │
+                ├─────┼──────────┼─────────┤
+                │ 1   │ 0(Joey)  │ 1(左上) │
+                ├─────┼──────────┼─────────┤
+                │ 2   │ 1(Henry) │ 0(正臉) │
+                ├─────┼──────────┼─────────┤
+                │ 3   │ 0(Joey)  │ 0(正臉) │
+                └─────┴──────────┴─────────┘
+
+                當 Idx=0（Joey）、PoseCat=0（正臉）時：
+                PersonMask   = [True,  True,  False, True ]   # Y==0（Joey）
+                (P == 0)     = [True,  False, True,  True ]   # P==0（正臉）
+                PoseMask     = [True,  False, False, True ]   # 兩者都 True → Joey 的正臉
+
+                最終 X[PoseMask] 只取出 i=0 和 i=3，也就是 Joey 的正臉樣本。
+                簡單說就是：在全部樣本裡，精確撈出「某人 × 某姿態」的特徵向量。                
+                '''
 
             self._trainMatcher()
             return self._IsTrained
@@ -99,9 +149,13 @@ class FaceRecognizer:
         """
         try:
             ValidPersons = {
-                Name: PoseDict
-                for Name, PoseDict in self._Samples.items()
-                if any(Vecs for Vecs in PoseDict.values())
+                Name: PoseDict                              
+                # 上句的意思是,保留此人名與其姿態字典. 注意: 這裡的冒號是 dict comprehension 的語法，不是型態宣告。意思是：把 Name 當 key，PoseDict 當 value，組成一個新字典。
+                for Name, PoseDict in self._Samples.items() # 遍歷每一個人
+                if any(Vecs for Vecs in PoseDict.values())  # 條件：至少有一個姿態有樣本
+                    #逐一檢查此人每個姿態的樣本列表：
+                    #只要任何一個列表非空 , any() 回傳 True , 此人有效
+                    #全部列表都是空的 , any() 回傳 False , 此人排除
             }
             if not ValidPersons:
                 return False

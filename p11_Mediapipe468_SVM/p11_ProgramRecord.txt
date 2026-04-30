@@ -4,6 +4,7 @@
 [運作理論整理]
 [SVM由C.C寫和直接用Sklearn的落差] 主要要C.C寫是因為Windows會擋相關的dll
 [UI的Export,Import的用法]
+[精簡知識記錄]
 
 標記區: (不懂,要看)
 = = = = = =
@@ -25,12 +26,16 @@
   25 個關鍵點：**
   額頭、眼睛四角×2、眼瞼×2、眉毛×2（外/頂/內）、鼻翼×2、鼻基底、嘴角×2、上下唇、下巴、左右顴骨
   
-face_pose_classifier.py : Ln 172, Signed Yaw / Pitch → 五類姿態分類（0~4）
+[face_pose_classifier.py] : Ln 198, (4/30看一次) Signed Yaw / Pitch / Roll → 五類姿態分類（0~4）+ 歪頭偵測
   姿態類別（0~4，供 UI 顯示）:查出是中間,左上,左下,右上,右下
 
-face_recognizer.py : 491, 人類辦識總程式(會用到其他程式),只取正臉,載入/存放npz 檔,批次學習後重新訓練,     SVM真正的fit位置,人臉推論(但主程式在svm_classifier_np.py)
+[face_recognizer.py] : 491, (難度高,4/30看到Ln 220) 人類辦識總程式(會用到其他程式),只取正臉,載入/存放npz 檔,批次學習後重新訓練,     SVM真正的fit位置,人臉推論(但主程式在svm_classifier_np.py)
   def AddSample(self, Frame: np.ndarray, PersonName: str,  (這是偵測人臉的重要起點)
      從 BGR 影像偵測人臉，萃取特徵向量並依姿態類別加入訓練樣本。
+
+  def _trainMatcher(self) -> None: #訓練 的主要程式
+
+  def Predict(self, Frame: np.ndarray) -> list:  #主要做推論(inference, detect)的主程式
 main.py : Ln 987
   StealEatStep
 
@@ -40,19 +45,39 @@ main.py : Ln 987
     偵測 BGR 影像中的所有人臉，回傳邊界框、468 個 3D landmark 及關鍵點。
   UI 顯示學習時的眼鼻嘴點
 	
-svm_classifier_np.py : Ln 303, 後來換sklearn了,人臉推論主程式,sigmoid,margin 判斷 (sklearn LinearSVC + Z-Score/L2 + KNN 驗證)
+[svm_classifier_np.py] : Ln 303, 後來換sklearn了,人臉推論主程式,sigmoid,margin 判斷 (sklearn LinearSVC + Z-Score/L2 + KNN 驗證)
   for _, Landmarks3D, KeyPoints in Detections: — 在這裡接收468wfyr 並往下傳
   多(單)人模式, 前處理, Unknown 判斷, Margin 判斷, 餘弦驗證, KNN 驗證
   
   Unknown 偵測機制
-  
+
+  def fit(self, Samples: dict) -> None:  #訓練的主程式之一, OneClassSVM, LinearSVC都有做fit(), 其中 Xnorm 很重要
+
+[精簡知識記錄]
+1. Yaw (水平轉角,搖頭), Pitch(垂直傾角,點頭), Roll(旋轉,歪頭)
+2. if FaceWidth < 1e-5: ,這不寫 < 0 的原因是不會發生 < 0的情況,但要避免極小值發生
+3. Google手機人臉辦識訓練也是有指示的:
+https://guidebooks.google.com/pixel/optimize-your-life/set-up-face-unlock?hl=zh-tw
+https://www.youtube.com/watch?v=A0sbx5F9OEU
+
 [運作理論整理]
-WebCam影像進來 > 找出468點 > 把臉拉回正臉 > 取25關鍵點,並以此找出300 夾角 + 25 距離 > 用顴骨間距為主做正規化
+1. WebCam影像進來 > 找出468點 > 把臉拉回正臉 > 取25關鍵點,並以此找出300 夾角 + 25 距離 > 用顴骨間距為主做正規化
 | 主管建議 | 實作方式 |
 |---------|---------|
 | 重心向量化（鼻尖為原點） | `v_i = P_i − P_鼻尖`（同 p10，鼻尖是「重心參考點」） |
 | 單位化（除以臉部寬度） | `‖v_i‖ / 臉部寬度`（臉部寬度 = 左右顴骨間距，p10 用 IOD） |
 | 點對點向量夾角 | `θ_ij = arccos(unit_i · unit_j)`，幾何不變量 |
+
+2. 訓練時,把 .npz 檔的所有人,所有內容取出,經過 Z-Score統計量, Z-Score 標準化 + L2 正規化, 計算KNN閾值(目前最後未使用),然後相關值進行 OneClassSVM 和 LinearSVC 的 fit().
+
+3. 推論時,
+ WebCam取畫面,一樣取468點後處理的325個特徵,拉直,做正規化
+   把上述特徵值跟訓練時的正規化處理後,
+   做 LinearSVC 的 predict, 去做 LinearSVC.decision_function,會告知目前在各類的分數.
+     然後把 分數轉換的閾值, Margin分差值, 餘弦驗證(cosine), 及 OneClassSVM的 predict(), 將這些結果放到 main.py處理(_OnDetectNoneResult),
+ 
+_ReliableBuffer: 長度200個,會記錄推論時,若為正臉,LinearSVC 的結果(正常來說是正確的類別
+如果 OneClassSVM 的結果為"Unknown"(表示他覺得不是 LinearSVC 預測的結果),他就會取
 
 有sigmoid, cosine, margin 這三個 filter
 
@@ -415,3 +440,12 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
  .. NormDists = np.linalg.norm(Vecs, axis=1) / FaceWidth    # shape=(25,)
  .. VecNorms = np.linalg.norm(Vecs, axis=1, keepdims=True) #下面三行都不懂
  .. CosMat = np.clip(UnitVecs @ UnitVecs.T, -1.0, 1.0) #下面三行都不懂
+
+[face_pose_classifier.py] : Ln 198, Signed Yaw / Pitch / Roll → 五類姿態分類（0~4）+ 歪頭偵測
+ .. return float(np.arctan2(Dy, Dx)) #比較難
+ 
+[face_recognizer.py]
+ .. Data    = np.load(self._ModelPath, allow_pickle=True)
+ .. for Idx, Name in enumerate(Persons):
+ .. for PoseCat in range(N_POSES):
+ .. if PoseMask.any():

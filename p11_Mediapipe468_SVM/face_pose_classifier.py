@@ -21,6 +21,18 @@ face_pose_classifier.py
   低頭（DOWN）：下巴遠離、額頭靠近 → ChinZ↑、ForeheadZ↓ → 正值
   仰頭（UP）  ：下巴靠近、額頭遠離 → ChinZ↓、ForeheadZ↑ → 負值
   正臉 ≈ 0
+
+【Roll（橫滾角 / 歪頭）】
+  Roll = arctan2(Dy, Dx)
+    Dx = RightCheekX − LeftCheekX（index 454 − index 234，x 軸分量）
+    Dy = RightCheekY − LeftCheekY（index 454 − index 234，y 軸分量）
+  利用左→右顴骨連線在螢幕 x-y 平面的傾角計算橫滾角（弧度）：
+  Roll ≈ 0  → 頭部直立，顴骨連線接近水平
+  Roll > 0  → 頭向右傾（右耳朝下）
+  Roll < 0  → 頭向左傾（左耳朝下）
+  |Roll| > ROLL_THRESH（0.15 rad ≈ 8.6°）→ 視為歪頭（IsNonFrontal = True）
+  歪頭時與側臉相同處理：sigmoid 閾值放寬 −0.1，Margin 閾值停用，
+  並優先沿用 StealEatStep 正臉快取結果（以 IoU 或中心點距離判同一張臉）
 """
 
 import numpy as np
@@ -62,8 +74,8 @@ def _computeSignedYaw(Landmarks3D: np.ndarray) -> float:
         FaceWidth = MaxX - MinX
         if FaceWidth < 1e-5:
             return 0.0
-        DistA = NoseTipX - MinX
-        DistB = MaxX     - NoseTipX
+        DistA = NoseTipX - MinX  #鼻尖距離左顴骨的水平距離
+        DistB = MaxX     - NoseTipX #鼻尖距離右顴骨的水平距離
         return (DistA - DistB) / FaceWidth
     except Exception:
         return 0.0
@@ -85,12 +97,12 @@ def _computeSignedPitch(Landmarks3D: np.ndarray) -> float:
     try:
         ForeheadY = float(Landmarks3D[10,  1])
         ChinY     = float(Landmarks3D[152, 1])
-        ForeheadZ = float(Landmarks3D[10,  2])
+        ForeheadZ = float(Landmarks3D[10,  2])  # Z 軸：越小越靠近鏡頭
         ChinZ     = float(Landmarks3D[152, 2])
         FaceHeight = ChinY - ForeheadY
         if abs(FaceHeight) < 1e-5:
             return 0.0
-        return (ChinZ - ForeheadZ) / FaceHeight
+        return (ChinZ - ForeheadZ) / FaceHeight #下巴Z軸較大為低頭,額頭Z軸較大為仰頭
     except Exception:
         return 0.0
 
@@ -111,7 +123,7 @@ def _computeRoll(Landmarks3D: np.ndarray) -> float:
     try:
         Dx = float(Landmarks3D[454, 0] - Landmarks3D[234, 0])
         Dy = float(Landmarks3D[454, 1] - Landmarks3D[234, 1])
-        if abs(Dx) < 1e-8 and abs(Dy) < 1e-8:
+        if abs(Dx) < 1e-8 and abs(Dy) < 1e-8:   # 差距過小無法計算角度
             return 0.0
         return float(np.arctan2(Dy, Dx))
     except Exception:
@@ -141,17 +153,13 @@ def classifyPose(Landmarks3D: np.ndarray) -> int:
             return POSE_FRONTAL
 
         # 非正臉：依符號落入四象限
-        if   Yaw <= 0 and Pitch <= 0:
-            # print(f"[臉左上] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
+        if   Yaw <= 0 and Pitch <= 0:   # Yaw < 0 → 臉朝左；Pitch < 0 → 臉朝上
             return POSE_LEFT_UP
         elif Yaw >  0 and Pitch <= 0:
-            # print(f"[臉右上] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
             return POSE_RIGHT_UP
         elif Yaw <= 0 and Pitch >  0:
-            # print(f"[臉左下] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
             return POSE_LEFT_DOWN
         else:
-            # print(f"[臉右下] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
             return POSE_RIGHT_DOWN
 
     except Exception:
@@ -172,19 +180,14 @@ def classifyPoseWithValues(Landmarks3D: np.ndarray) -> tuple:
         Roll  = _computeRoll(Landmarks3D)
 
         if abs(Yaw) < YAW_THRESH and abs(Pitch) < PITCH_THRESH:
-            # print(f"[臉正面] Yaw,YAW_THRESH:{abs(Yaw)},{YAW_THRESH} , Pitch,PITCH_THRESH:{abs(Pitch)},{PITCH_THRESH}")
             Cat = POSE_FRONTAL
         elif Yaw <= 0 and Pitch <= 0:
-            # print(f"[臉左上] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")
             Cat = POSE_LEFT_UP
         elif Yaw >  0 and Pitch <= 0:
-            # print(f"[臉右上] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")
             Cat = POSE_RIGHT_UP
         elif Yaw <= 0 and Pitch >  0:
-            # print(f"[臉左下] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")
             Cat = POSE_LEFT_DOWN
         else:
-            # print(f"[臉右下] Yaw,YAW_THRESH:{Yaw},{YAW_THRESH} , Pitch,PITCH_THRESH:{Pitch},{PITCH_THRESH}")
             Cat = POSE_RIGHT_DOWN
 
         return Cat, Yaw, Pitch, Roll

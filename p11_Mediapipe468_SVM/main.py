@@ -39,7 +39,7 @@ DETECT_TICK_MS        = 250    # 偵測時每次推論的間隔
 DETECT_NONE_DETECT_TARGET = 10  # 滑動窗口多數決所需幀數
 STABLE_FACE_IOU_THRESH    = 0.35   # 穩定臉追蹤：bounding box IoU 超過此值視為同一張臉
 STABLE_FACE_CENTER_THRESH = 0.50   # 中心點距離 < 臉寬 × 此比例也視為同一張臉（歪頭 fallback）
-STABLE_FACE_MAX_MISS      = 10     # 連續幾個 tick 偵測不到臉後清除穩定結果
+STABLE_FACE_MAX_MISS      = 5     # 連續幾個 tick 偵測不到臉後清除穩定結果
 StealEatStep              = True   # True = 啟用正臉穩定追蹤；False = 停用
 
 
@@ -160,7 +160,7 @@ class MainApp(customtkinter.CTk):
     # ──────────────────────────────────────────────────────────────────────────
     def _BuildUI(self, mode) -> None:
         """建立 CustomTkinter UI 介面。"""
-        self.title("人臉辨識系統（MediaPipe 五類姿態 SVM）")
+        self.title("人臉辨識系統（MediaPipe LinearSVM + OneClassSVM）")
         self.protocol("WM_DELETE_WINDOW", self._OnClose)
         self.resizable(True, True)
 

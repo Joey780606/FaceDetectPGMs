@@ -33,21 +33,33 @@ MediaPipe 參考網址: https://ai.google.dev/edge/mediapipe/solutions/vision/fa
    - 訓練與偵測走同一條路，特徵一致
 5. **單一 SVM**：姿態正規化後只需一個 SVM，所有角度樣本混合訓練。
    訓練時 `FrontalOnly=True`，只收正臉樣本。
-6. **Unknown 偵測（四層）**：
+6. **歪頭（Roll）偵測**：
+   - `face_pose_classifier.py` 新增 `_computeRoll()`，以左右顴骨連線計算橫滾角（弧度）
+   - `ROLL_THRESH = 0.15`（≈ 8.6°）；`classifyPoseWithValues()` 回傳 4-tuple `(PoseCat, Yaw, Pitch, Roll)`
+   - `IsNonFrontal = (PoseCat != POSE_FRONTAL) or (abs(Roll) > ROLL_THRESH)`：歪頭視同非正臉，套用較寬鬆閾值
+   - UI 即時顯示 `Y / P / R` 三軸數值
+7. **Unknown 偵測（五層）**：
    - 第一層：sigmoid 信心度閾值（低於閾值 → "Unknown"）
-   - 第二層：margin 分差閾值（正臉時 top-1/top-2 分差小 → "Unknown"；側臉停用）
-   - 第三層：餘弦驗證（`COSINE_VERIFY_THRESH`，預設 −1.0 關閉；query 與該人平均向量 cosine < 閾值 → "Unknown"）
-   - 第四層：KNN 驗證（`KNN_VERIFY_ENABLED`，預設關閉）
-7. **自訓練 Unknown 類別**：
+   - 第二層：margin 分差閾值（正臉時 top-1/top-2 分差小 → "Unknown"；側臉/歪頭停用）
+   - 第三層：OneClassSVM 二階段驗證（`OC_SVM_ENABLED=True`；LinearSVC 辨識後再以該人 OC-SVM 確認分布，`-1` → "Unknown"）
+   - 第四層：餘弦驗證（`COSINE_VERIFY_THRESH`，預設 0.2；query 與該人平均向量 cosine < 閾值 → "Unknown"）
+   - 第五層：KNN 驗證（`KNN_VERIFY_ENABLED`，預設關閉）
+8. **自訓練 Unknown 類別**：
    - 類別名稱固定為 `UNKNOWN_CLASS = "Unknown."` （末尾句點，與 sigmoid 拒絕的 "Unknown" 區別）
    - UI 提供 "Train Unknown." 按鈕，選擇圖片目錄批次訓練
-8. **側臉閾值調整**：非正臉時 sigmoid 閾值 −0.1，margin 閾值強制設為 0.0（停用）
-9. **時序穩定追蹤（StealEatStep）**：
-   - 正臉辨識成功後暫存結果（_StableFace）
-   - 後續非正臉 frame 若 bounding box IoU ≥ 0.35，沿用上次正臉結果
-   - 連續 10 tick 無偵測後清除快取
-   - `StealEatStep = True` 啟用，`False` 停用
-10. **商用授權**：MediaPipe Apache 2.0、OpenCV Apache 2.0、NumPy BSD、scikit-learn BSD、CustomTkinter CC0、Pillow MIT，均可安全商用。
+   - OC-SVM 不對 Unknown / Unknown. 訓練（分布太分散，無意義）
+9. **側臉/歪頭閾值調整**：`IsNonFrontal` 時 sigmoid 閾值 −0.1，margin 閾值強制設為 0.0（停用）
+10. **時序穩定追蹤（StealEatStep）**：
+    - 正臉且頭直立（Roll 未超標）辨識成功 → 暫存 `_StableFace`（bbox, name, conf）
+    - 後續側臉/歪頭 frame：先查 IoU ≥ 0.35，不足時以中心點距離 < 臉寬 × 0.50 作 fallback（歪頭時 bbox 形狀變但中心點幾乎不動）
+    - 連續 10 tick 無偵測後清除快取
+    - `StealEatStep = True` 啟用，`False` 停用
+11. **ReliableBuffer（LinearSVC 累積票數 fallback）**：
+    - `_ReliableBuffer = deque(maxlen=200)`：累積正臉時 LinearSVC（OC-SVM 驗證前）的原始辨識結果
+    - 當最終結果為 Unknown（任何層拒絕）且 buffer 有資料 → 以 buffer 中票數最多者作為 fallback 輸出
+    - buffer 清空條件：① 人臉消失超過 10 tick、② 新正臉 bbox 與 `_StableFace` 不重疊（換人）、③ 使用者按 Stop
+    - 設計目的：緩衝 OC-SVM 偶發誤拒，保持辨識穩定性
+12. **商用授權**：MediaPipe Apache 2.0、OpenCV Apache 2.0、NumPy BSD、scikit-learn BSD、CustomTkinter CC0、Pillow MIT，均可安全商用。
 
 ## UI
 輸入人名，按 Learning 進行正臉學習，按 Detect 推論是誰。
