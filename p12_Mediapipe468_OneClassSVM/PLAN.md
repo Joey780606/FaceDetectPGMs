@@ -1,36 +1,30 @@
 # p12_Mediapipe468_OneClassSVM 實作計畫
 
-## Context
-
-p12 是 p11（LinearSVC 多類別分類）的升級版，改用 **OneClassSVM** 架構：
-每人獨立一個 SVM，更適合「辨識陌生人」場景。  
-目前 p12 目錄只有 Refmain.py（UI 參考）與 CLAUDE.md，所有核心模組均需建立。
+## 狀態：✅ 核心實作完成（持續改進中）
 
 ---
 
-## 需建立的檔案（6 個）
+## 已完成的檔案
 
-| 檔案 | 動作 | 說明 |
+| 檔案 | 狀態 | 說明 |
 |------|------|------|
-| `mp_face_landmarker.py` | 直接移植 p11 | MediaPipe 468 點偵測，介面不變 |
-| `face_feature_3d.py` | 直接移植 p11 | 325 維特徵萃取，演算法不變 |
-| `face_pose_classifier.py` | 直接移植 p11 | 5 級姿態分類，邏輯不變 |
-| `svm_classifier_np.py` | **完整重寫** | LinearSVC → OneClassSVM（見下方設計） |
-| `face_recognizer.py` | 修改 p11 | 移除 Unknown 類別訓練，適配 OneClassSVM API |
-| `main.py` | 基於 Refmain.py | 移除 TrainUnknown 按鈕，其餘 UI 保留 |
+| `mp_face_landmarker.py` | ✅ 完成 | MediaPipe 468 點偵測，移植自 p11 |
+| `face_feature_3d.py` | ✅ 完成 | 325 維特徵萃取，移植自 p11 |
+| `face_pose_classifier.py` | ✅ 完成 | 5 級姿態分類 + Roll 偵測（新增） |
+| `svm_classifier_np.py` | ✅ 完成 | 完整重寫為 OneClassSVM，含 PoseLabels debug |
+| `face_recognizer.py` | ✅ 完成 | 移除 Unknown class，適配 OneClassSVM + Roll |
+| `main.py` | ✅ 完成 | 移除 TrainUnknown，加入 StealEatStep + Roll 延伸 |
 
 ---
 
 ## OneClassSVM 核心設計
 
-### svm_classifier_np.py 重寫方案
-
-**類別：** `SvmClassifier`
+### svm_classifier_np.py
 
 **訓練（fit）：**
 ```
 samples = {人名: [325維向量, ...]}
-→ 合併所有人的向量做 Z-Score 標準化（StandardScaler）
+→ 合併所有人的向量做全局 Z-Score 標準化
 → 每筆向量做 L2 正規化
 → 每人獨立訓練一個 OneClassSVM(kernel='rbf', nu=0.1, gamma='scale')
 → 記錄每人的平均向量（供 cosine 驗證用）
@@ -41,84 +35,93 @@ samples = {人名: [325維向量, ...]}
 ```
 x（新樣本）→ 同樣標準化 + L2 正規化
 → 對每人 SVM 呼叫 decision_function(x) → score
-→ 取得 {人名: score} 字典
+→ 四層 Unknown 偵測 → 回傳 (Name, Conf)
 ```
 
-### OneClassSVM Unknown 偵測四層（重新設計）✅ 使用者確認
+**debug print 格式：**
+```
+[OCSVM/全角度][正臉 Y:+0.02] Scores=[Joey:0.821 ...] thresh=0.00 → Joey cos=0.895
+[OCSVM/全角度][歪頭 R:+0.21] Scores=[Joey:-0.12 ...] thresh=-0.10 → Unknown ✗低信心
+[OCSVM/全角度][左上 Y:-0.38] Scores=[Joey:0.45  ...] thresh=-0.10 → Joey cos=0.82
+```
 
-OneClassSVM 的 `decision_function()` 回傳 raw score：
-- `> 0` → 判定為 inlier（屬於此人）
-- `< 0` → 判定為 outlier（不屬於此人）
+### Unknown 偵測四層
 
-**前置判斷：** 若所有人的 SVM 都回傳負值 → 直接 Unknown
+**第一層（信心度）：**
+top-1 score < `SVM_CONF_THRESH`（預設 0.0）→ Unknown
+側臉或歪頭時降低閾值至 −0.1
 
-**第一層（信心度）：**  
-top-1 的 raw decision score < `SVM_CONF_THRESH`（預設 0.0）→ Unknown  
-slider 範圍：-1.0 ~ 1.0（使用者確認使用 raw score，不做 sigmoid 轉換）  
-側臉時降低閾值至 -0.1（同 p11 邏輯）
+**第二層（分差 margin）：**
+score[top-1] − score[top-2] < `MARGIN_THRESH`（預設 0.3）→ Unknown
+側臉或歪頭時強制設為 0.0（停用）
 
-**第二層（分差 margin）：**  
-score[top-1] - score[top-2] < `MARGIN_THRESH`（預設 0.3）→ Unknown  
-slider 範圍：0.0 ~ 3.0  
-側臉時強制設為 0.0（停用）
+**第三層（餘弦驗證）：**
+query 與該人平均向量 cosine < `COSINE_VERIFY_THRESH`（預設 −1.0 關閉）→ Unknown
 
-**第三層（餘弦驗證）：**  
-query 與該人平均向量 cosine < `COSINE_VERIFY_THRESH`（預設 -1.0 關閉）→ Unknown  
-slider 範圍：-1.0 ~ 0.8
-
-**第四層（KNN 驗證）：**  
-`KNN_VERIFY_ENABLED` 預設關閉，邏輯與 p11 相同
+**第四層（KNN 驗證）：**
+`KNN_VERIFY_ENABLED` 預設關閉
 
 ---
 
-## face_recognizer.py 修改重點
+## 常數設定
 
-- 移除：`AddSamplesFromFolder`（Unknown class 圖檔批量導入，不再需要）
-- 保留：所有公開 API（`AddSample`, `FinishLearning`, `Predict`, `LoadModel`, `SaveModel`, `ExportPerson`, `ImportPersonFiles`, `SetThresholds`, `GetKnownPersons`, `RemovePerson` 等）
-- 訓練資料存儲格式不變（.npz 存 X/Y/persons，載入時重訓各人 SVM）
-
----
-
-## main.py UI 修改重點
-
-基於 Refmain.py，以下差異：
-- **移除** TrainUnknown 按鈕（✅ 使用者確認：OneClassSVM 本身能偵測 Unknown，不需要額外匯入陌生人圖檔）
-- **保留** Learning / Detect / Remove / Export / Import & Merge 按鈕
-- **保留** 三個 slider：信心度閾值（-1.0~1.0）、分差閾值（0.0~3.0）、餘弦驗證閾值（-1.0~0.8）
-- Slider 標籤和預設值更新以反映 OneClassSVM 的 score 語意
-
----
-
-## 常數設定（svm_classifier_np.py）
-
+### svm_classifier_np.py
 ```python
-SVM_CONF_THRESH      = 0.0    # OneClassSVM raw decision score 閾值（slider: -1.0~1.0）
+SVM_CONF_THRESH      = 0.0    # raw score 閾值（slider: -1.0~1.0）
 SVM_MARGIN_THRESH    = 0.3    # 分差閾值（slider: 0.0~3.0）
-COSINE_VERIFY_THRESH = -1.0   # 餘弦驗證（-1.0 = 關閉；slider: -1.0~0.8）
-KNN_VERIFY_ENABLED   = False  # KNN 驗證（預設關閉）
-SVM_NU               = 0.1    # OneClassSVM 異常比例上限
-SVM_KERNEL           = 'rbf'  # RBF kernel
+COSINE_VERIFY_THRESH = -1.0   # 餘弦驗證（-1.0 = 關閉）
+KNN_VERIFY_ENABLED   = False
+SVM_NU               = 0.1    # 越低邊界越寬鬆，越高越嚴格
+SVM_KERNEL           = 'rbf'
 SVM_GAMMA            = 'scale'
 ```
 
+### face_pose_classifier.py
+```python
+YAW_THRESH   = 0.30   # 水平轉角閾值
+PITCH_THRESH = 0.15   # 垂直傾角閾值
+ROLL_THRESH  = 0.15   # 歪頭角度閾值（弧度，≈ 8.6°）
+```
+
+### main.py
+```python
+STABLE_FACE_IOU_THRESH    = 0.35   # 穩定臉 IoU 閾值
+STABLE_FACE_CENTER_THRESH = 0.50   # 中心點距離 fallback 閾值（歪頭用）
+STABLE_FACE_MAX_MISS      = 10     # 連續 miss 幾 tick 後清快取
+STABLE_FACE_CLEAR_THRESH  = -0.30  # 分數低於此值才真正清快取
+StealEatStep              = True
+```
+
 ---
 
-## 實作順序
+## 後續改進紀錄
 
-1. `mp_face_landmarker.py` — 移植（不改動）
-2. `face_feature_3d.py` — 移植（不改動）
-3. `face_pose_classifier.py` — 移植（不改動）
-4. `svm_classifier_np.py` — 完整重寫（OneClassSVM）
-5. `face_recognizer.py` — 修改（移除 Unknown class，適配新 SVM）
-6. `main.py` — 基於 Refmain.py 建立（移除 TrainUnknown）
+### Roll（歪頭）偵測與處理
+- `face_pose_classifier.py` 新增 `_computeRoll()` 與 `ROLL_THRESH`
+- `classifyPoseWithValues()` 回傳 4-tuple：`(PoseCat, Yaw, Pitch, Roll)`
+- `face_recognizer.py`：歪頭時同側臉，觸發 −0.1 閾值調整
+- result tuple 擴充為 10 值：`(Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll)`
+
+### StealEatStep 時序穩定追蹤
+- 正臉認識 → 更新快取 `_StableFace`
+- 正臉 Unknown 且分數 < `STABLE_FACE_CLEAR_THRESH(−0.30)` → 清快取
+- 正臉 Unknown 但分數介於 −0.30~0（邊界模糊）→ 沿用快取
+- 側臉 OR 歪頭 → 以 `_isSameFace()` 判斷是否沿用快取
+
+### _isSameFace() IoU + 中心點距離
+- IoU ≥ 0.35 → 同一張臉（原判斷）
+- IoU 不足時：中心距離 / 臉寬 < 0.50 → 同一張臉（歪頭 fallback）
+- 歪頭時 bounding box 形狀改變，IoU 易低估，中心點距離更穩定
+
+### PoseLabels debug 輸出
+- `svm_classifier_np.py predict()` 新增 `PoseLabels` 參數
+- `face_recognizer.py` 組合姿態字串傳入，輸出含姿態標籤的 debug log
 
 ---
 
-## 驗證方式
+## 已知限制與調優建議
 
-1. 執行 `main.py`，確認 Webcam 開啟
-2. 輸入姓名 → Learning → 收集 100 幀 → 訓練完成
-3. 按 Detect → 確認正確辨識
-4. 不輸入已知人臉 → 確認顯示 Unknown
-5. 側臉測試 → 確認閾值自動調整
-6. Export / Import & Merge 功能驗證
+- `SVM_NU=0.1` 邊界較緊，score 易在 0 附近跳動；可調低至 0.05 讓邊界更寬鬆
+- `STABLE_FACE_CLEAR_THRESH=-0.30` 可視場景調整（−0.20 更保守；−0.40 更寬鬆）
+- 訓練樣本數量不均衡（如 A:1000、B:100）會讓 GlobalMean 偏向 A，影響 B/C/D 的歸一化；訓練時盡量各人樣本數接近
+- Roll 的 R^T 補正在 z 軸深度估計誤差較大時仍有殘差，訓練時可適度加入歪頭樣本

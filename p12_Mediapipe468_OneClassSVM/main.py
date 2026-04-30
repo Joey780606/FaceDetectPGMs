@@ -32,8 +32,8 @@ from svm_classifier_np import SVM_CONF_THRESH, SVM_MARGIN_THRESH, COSINE_VERIFY_
 LEARN_TARGET_FRAMES       = 100    # 學習模式目標收集 frame 數
 LEARN_TIMEOUT_SECONDS     = 120    # 學習模式最長等待時間（秒）
 UI_REFRESH_MS             = 30     # webcam 畫面更新間隔（毫秒）
-LEARN_TICK_MS             = 500    # 學習時每次抓 frame 的間隔（每秒 2 個樣本）
-DETECT_TICK_MS            = 300    # 偵測時每次推論的間隔
+LEARN_TICK_MS             = 5    # 學習時每次抓 frame 的間隔（每秒 2900 個樣本）
+DETECT_TICK_MS            = 30    # 偵測時每次推論的間隔
 DETECT_NONE_DETECT_TARGET = 10     # 滑動窗口多數決所需幀數
 STABLE_FACE_IOU_THRESH    = 0.35   # 穩定臉追蹤：IoU 超過此值視為同一張臉
 STABLE_FACE_CENTER_THRESH = 0.50   # 中心點距離 < 臉寬 × 此比例也視為同一張臉（歪頭 fallback）
@@ -117,12 +117,13 @@ class MainApp(customtkinter.CTk):
         self._DetectNoneDtNames = []
 
         # 學習模式狀態
-        self._LearnActive     = False
-        self._LearnStartTime  = 0.0
-        self._LearnName       = ""
-        self._LearnFrameCount = 0
+        self._LearnActive       = False
+        self._LearnStartTime    = 0.0
+        self._LearnStartTimeStr = ""
+        self._LearnName         = ""
+        self._LearnFrameCount   = 0
 
-        # 推論執行緒防重入旗標
+        # 推論執行緒防重入旗標 (Learning 與 Inference 共用,但不會互相干擾，因為不會同時啟動)
         self._InferenceActive = False
 
         # 穩定臉追蹤：正臉辨識成功後暫存，非正臉 frame 以 IoU 判斷是否沿用
@@ -447,8 +448,8 @@ class MainApp(customtkinter.CTk):
         """
         DrawFrame = Frame.copy()
         for Top, Right, Bottom, Left, Name, Confidence, PoseCat, _Yaw, _Pitch, _Roll in Detections:
-            #Color     = (0, 255, 0) if Name != "Unknown" else (0, 0, 255)
-            Color     = (0, 255, 0)
+            Color     = (0, 255, 0) if Name != "Unknown" else (0, 0, 255)
+            #Color     = (0, 255, 0)
             PoseShort = POSE_NAMES_EN[PoseCat] if 0 <= PoseCat < len(POSE_NAMES_EN) else "?"
             cv2.rectangle(DrawFrame, (Left, Top), (Right, Bottom), Color, 2)
             if Name != "Unknown":
@@ -803,10 +804,12 @@ class MainApp(customtkinter.CTk):
             self._BtnDetectNone.configure(text="Detect", state="normal")
             self._LblDetectName.configure(text="")
 
-        self._LearnActive     = True
-        self._LearnName       = PersonName
-        self._LearnStartTime  = time.time()
-        self._LearnFrameCount = 0
+        import datetime
+        self._LearnActive       = True
+        self._LearnName         = PersonName
+        self._LearnStartTime    = time.time()
+        self._LearnStartTimeStr = datetime.datetime.now().strftime("%H:%M:%S")
+        self._LearnFrameCount   = 0
 
         self._BtnLearn.configure(state="disabled")
         self._LblRemain.configure(
@@ -826,6 +829,10 @@ class MainApp(customtkinter.CTk):
 
     def _StopLearning(self) -> None:
         """結束學習模式，儲存模型。"""
+        import datetime
+        _LearnEndTime    = time.time()
+        _TotalSecs       = _LearnEndTime - self._LearnStartTime
+        _LearnEndTimeStr = datetime.datetime.now().strftime("%H:%M:%S")
         self._LearnActive        = False
         self._LastDetections     = []
         self._LastLearnKeyPoints = []
@@ -870,6 +877,14 @@ class MainApp(customtkinter.CTk):
         MsgBox.showinfo("學習完成", Msg)
 
         self._UpdateSummary()
+        _Mins    = int(_TotalSecs) // 60
+        _Secs    = _TotalSecs - _Mins * 60
+        _TimeStr = f"{_Mins}分 {_Secs:.0f}秒" if _Mins > 0 else f"{_TotalSecs:.1f}秒"
+        self._AppendLog(
+            f"[{self._LearnName}] 訓練計時｜"
+            f"開始 {self._LearnStartTimeStr}  結束 {_LearnEndTimeStr}  "
+            f"耗時 {_TimeStr}  共 {self._LearnFrameCount} 幀"
+        )
         if self.pet:
             self.pet.face_detected.emit("Finished learning!")
 
