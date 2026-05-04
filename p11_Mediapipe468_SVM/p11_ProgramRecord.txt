@@ -36,7 +36,7 @@
   def _trainMatcher(self) -> None: #訓練 的主要程式
 
   def Predict(self, Frame: np.ndarray) -> list:  #主要做推論(inference, detect)的主程式
-main.py : Ln 987
+[main.py] : Ln 987, 看到423
   StealEatStep
 
 [mp_face_landmark.py] : Ln 229, MediaPipe FaceLandmarker 封裝，回傳 (468, 3) landmarks
@@ -252,6 +252,8 @@ face_feature_3d.py >>  def extractFeatures3D(Landmarks3D: np.ndarray)
 2. MediaPipe提供的資料,有無468個有那些是虛擬出來的?或是有什麼資訊表示臉的關鍵部分已看不到,或已經不精準? (可以試調)
 3. 換個角度試,確認是Joey,幫忙測若是我轉角度,歪頭時,MediaPipe算出的468點(或25點,325角跟目前存的值,差異有多大?)
 
+4. 螢幕關閉,再開始,就會取不到畫面的問題 要解決
+
 
 <<除了利用歸一化外,臉部座標還有做什麼處理?>>
 看來都在 face_feature_3d.py > extractFeatures3D 函式處理
@@ -449,3 +451,43 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
  .. for Idx, Name in enumerate(Persons):
  .. for PoseCat in range(N_POSES):
  .. if PoseMask.any():
+ 
+[main.py] 看到 Line 627
+ 有二個class,一個是主class,另一個是 WebcamManager class
+ .. from face_recognizer import FaceRecognizer, UNKNOWN_CLASS  #從別隻自己寫的程式import變數
+ .. self._CameraIndex = CameraIndex #需為多台Camera多做選擇考慮嗎?
+ .. self._ReliableBuffer = deque(maxlen=200)  # 保留最近 200 次正臉 LinearSVC 結果
+ .. self._CurrentPhotoImage = None  # 這還有沒有用?
+ Ln 161~361 是UI的建立
+ .. f"{POSE_NAMES[c]}:{PoseCounts.get(c, 0)}" for c in range(5)  # 組合起來的用法要學
+ .. Timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+ .. PoseName = POSE_NAMES[PoseCat] if 0 <= PoseCat < len(POSE_NAMES) else "---"
+ .. self._LblPoseStatus.configure(text=Text) 有多種用法,再複習一下\
+ .. pass
+ .. FrameCopy = Frame.copy()
+ .. self.after(DETECT_TICK_MS, self._DetectNoneTick)
+ .. if self._StableFaceMiss >= STABLE_FACE_MAX_MISS:  #這個看要不要改為實際上多少秒偵測不到才算Face miss
+ .. Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll, PreVerifyName = R #應是把R list的內容都放到前面的變數去,若是,算重要寫法
+ ..       not self._isSameFace((Top, Right, Bottom, Left),
+			self._StableFace[0])):	#主要是_StableFace這個有多個??
+ .. FallbackName = Counter(self._ReliableBuffer).most_common(1)[0][0]
+ .. for R in Results: #這是不是考慮若一張圖裡有許多臉時,所以才這樣寫?
+ .. StableBbox, StableName, StableConf = self._StableFace #不懂
+ .. if self._isSameFace((Top, Right, Bottom, Left), StableBbox): #主要想了解else是要怎麼辦?
+ .. BestResult = max(Results, key=lambda R: R[5]) #不懂
+ .. self._DetectNoneDtNames.pop(0)	# List pop
+ .. BestName = Counter(self._DetectNoneDtNames).most_common(1)[0][0] # _DetectNoneDtNames好像就一個值,為何還要[0][0]
+ .. self.pet.face_detected.emit(f"Hi, {BestName} !") #這可能要跟pet (Michael 程式)看一下
+ .. @staticmethod
+ .. def _computeIoU(BboxA: tuple, BboxB: tuple) -> float:
+ .. FaceSize = max(RightA - LeftA, BottomA - TopA) # 主要是下面說若 < 1,是否也是避免後面除法分母太小
+ .. return (Dist / FaceSize) < STABLE_FACE_CENTER_THRESH # 應該是小於臉的一半吧?值是0.5
+ .. if PersonName not in KnownPersons: #記錄一下
+ .. f"目前已有人物：{', '.join(KnownPersons) if KnownPersons else '（無）'}"
+ .. Confirm = MsgBox.askyesno(	# 除了 askyesno,還有別的選項 ,showinfo ,showerror
+ .. if not Confirm:
+ .. FolderPath = FileDialog.askdirectory(title="選擇 Unknown 訓練圖片目錄")
+ .. self.after(0, lambda S=SuccessCount, F=FailCount, T=Total:
+ .. self.after(0, lambda: (  # 後面那行是做什麼?
+ .. FilePath = FileDialog.asksaveasfilename(  # askopenfilenames
+ .. PersonList = '、'.join(ImportedPersons)

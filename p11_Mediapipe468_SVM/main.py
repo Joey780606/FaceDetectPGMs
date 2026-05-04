@@ -51,9 +51,9 @@ class WebcamManager:
 
     def __init__(self, CameraIndex: int = 0):
         self._CameraIndex = CameraIndex
-        self._Cap         = None
+        self._Cap         = None        # OpenCV VideoCapture 物件
         self._Lock        = threading.Lock()
-        self._LatestFrame = None
+        self._LatestFrame = None    # 程式執行後就會有一個thread _CaptureLoop一直抓取最新的frame至此
         self._Running     = False
         self._Thread      = None
 
@@ -109,12 +109,12 @@ class WebcamManager:
 class MainApp(customtkinter.CTk):
     """主應用程式視窗，整合 webcam 與五類姿態 SVM 人臉辨識。"""
 
-    def __init__(self, mode="normal", pet=None):
+    def __init__(self, mode="normal", pet=None):    # pet 是Michael的寵物傳來的指令
         super().__init__()
 
         # DetectNone 模式狀態
-        self._DetectNoneActive  = False
-        self._DetectNoneDtNames = []
+        self._DetectNoneActive  = False     # 是否按下 Detect 按鈕的旗標
+        self._DetectNoneDtNames = []    # 偵測到的人名滑動窗口（用於多數決穩定輸出）
 
         # 學習模式狀態
         self._LearnActive    = False
@@ -123,9 +123,9 @@ class MainApp(customtkinter.CTk):
         self._LearnFrameCount = 0
 
         # 推論執行緒防重入旗標
-        self._InferenceActive = False
+        self._InferenceActive = False   # Learning, Detect 共用,以防 Thread 重複啟動
 
-        # Train Unknown 背景執行緒旗標
+        # Train Unknown 按鍵是否按下的 背景執行緒旗標
         self._TrainUnknownActive = False
 
         # 穩定臉追蹤：正臉辨識成功後暫存，非正臉 frame 以 IoU 判斷是否沿用
@@ -138,10 +138,10 @@ class MainApp(customtkinter.CTk):
         self._ReliableBuffer = deque(maxlen=200)  # 保留最近 200 次正臉 LinearSVC 結果
 
         # 人臉偵測結果快取（供 _UpdateWebcamView 繪製框）
-        self._LastDetections = []
+        self._LastDetections = []   # 很多內容的list [(Top, Right, Bottom, Left, Name, Confidence, PoseCat, Yaw, Pitch, Roll, PreVerifyName), ...]
 
         # 學習關鍵點快取（供學習中疊加顯示）
-        self._LastLearnKeyPoints = []
+        self._LastLearnKeyPoints = []   # list of dict，包含 left_eye, right_eye, nose, mouth 的中心點座標，供學習中疊加顯示
 
         # UI 圖像參照（防止 GC 回收）
         self._CurrentPhotoImage = None
@@ -160,7 +160,7 @@ class MainApp(customtkinter.CTk):
     # ──────────────────────────────────────────────────────────────────────────
     def _BuildUI(self, mode) -> None:
         """建立 CustomTkinter UI 介面。"""
-        self.title("人臉辨識系統（MediaPipe LinearSVM + OneClassSVM）")
+        self.title("人臉辨識系統（MediaPipe + LinearSVM + OneClassSVM）")
         self.protocol("WM_DELETE_WINDOW", self._OnClose)
         self.resizable(True, True)
 
@@ -372,7 +372,7 @@ class MainApp(customtkinter.CTk):
                 "無法開啟攝影機，請確認連線後重新啟動。\n應用程式將以無攝影機模式執行。"
             )
         try:
-            self._Recognizer.LoadModel()
+            self._Recognizer.LoadModel()    # 載入之前訓練的資料（如果有的話）
             self._UpdateSummary()
         except Exception as Error:
             print(f"[MainApp] 模型載入：{Error}")
@@ -393,7 +393,7 @@ class MainApp(customtkinter.CTk):
             PoseCounts = self._Recognizer.GetPersonPoseCounts(Name)
             PoseStr = " ".join(
                 f"{POSE_NAMES[c]}:{PoseCounts.get(c, 0)}" for c in range(5)
-            )
+            )   # ex : Unknown.: 69張 (置中:43 左上:4 右上:3 左下:9 右下:10)　|　Neil: 101張
             Parts.append(f"{Name}: {Total}張 ({PoseStr})")
         self._AppendLog("學習資料：" + "　|　".join(Parts))
 
@@ -533,7 +533,7 @@ class MainApp(customtkinter.CTk):
                     self._InferenceActive = True
                     FrameCopy = Frame.copy()
 
-                    def Worker():
+                    def Worker(): # 下方就有Thread呼叫Worker
                         try:
                             Results = self._Recognizer.Predict(FrameCopy)
                             self.after(0, lambda R=Results: self._OnDetectNoneResult(R))
@@ -574,6 +574,7 @@ class MainApp(customtkinter.CTk):
             StableResults = []
             for R in Results:
                 Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll, PreVerifyName = R
+                # PreVerifyName 是 LinearSVC 的原始辨識結果, Name 是 OC-SVM 經過閾值判定後的結果
                 IsRolled  = abs(Roll) > ROLL_THRESH
                 IsFrontal = (PoseCat == POSE_FRONTAL) and not IsRolled
                 #print(f"12345: ov-svm {Name}, linear-svm {PreVerifyName}")
@@ -706,7 +707,7 @@ class MainApp(customtkinter.CTk):
         if FaceSize < 1:
             return False
         Dist = ((CxA - CxB) ** 2 + (CyA - CyB) ** 2) ** 0.5
-        return (Dist / FaceSize) < STABLE_FACE_CENTER_THRESH
+        return (Dist / FaceSize) < STABLE_FACE_CENTER_THRESH    # 中心距離小於臉部大小的 20% 即判定為同一張臉 (?)
 
     # ──────────────────────────────────────────────────────────────────────────
     # 學習功能
@@ -778,7 +779,7 @@ class MainApp(customtkinter.CTk):
                                    ))
 
                 SuccessCount, FailCount, TotalFiles = \
-                    self._Recognizer.AddSamplesFromFolder(
+                    self._Recognizer.AddSamplesFromFolder(  # 這應是主要的處理程式
                         FolderPath, UNKNOWN_CLASS, OnProgress=OnProgress
                     )
 
