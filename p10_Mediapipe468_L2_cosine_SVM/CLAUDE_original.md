@@ -31,10 +31,23 @@ MediaPipe參考網址: https://ai.google.dev/edge/mediapipe/solutions/vision/fac
 Refmain.py這個檔,在專案完成後,我會刪除掉. (我會刪該檔,您不用幫我刪.)
 
 ## 以下是個人筆記
-=== 實作看到的缺點:
- 1. 點數較多,(468 * 3),每次多加一人,就要重新訓練
- 2. 還是有機會偵測錯誤. 跟之前使用Yolo並沒有比較好.
+=== 程式記錄
+1. cosine_matcher_np.py : 沒有在用了
+2. face_feature_3d.py : 特徵萃取：468 點 → 351 維臉部比例向量
+3. face_recognizer.py : 整合層：學習、辨識、存檔、載入
+4. main.py 
+5. mp_face_landmarker.py : MediaPipe FaceLandmarker 封裝，輸出 468 個 3D 點
+6. svm_classifier_np.py : 辨識引擎：Z-Score 標準化 + OvR 線性 SVM（多人）/ 最大 Cosine（單人）
  
+=== 重要資料:
+#### 1.使用技術:
+a. MediaPipe: https://github.com/google-ai-edge/mediapipe (用來抓取68個點)
+b. 實測網站: https://code4fukui.github.io/mediapipe-test/facemesh.html
+c.  468點的圖 相關文件資料:
+https://github.com/tensorflow/tfjs-models/blob/master/face-landmarks-detection/mesh_map.jpg
+https://mediapipe-studio.webapps.google.com/demo/face_landmarker?hl=zh-tw
+https://7thsoftware.co.uk/misc/mediapipe/index.html
+
 === Note 1 : 推論時間
   目前是 300ms 推論一次（每秒約 3 次）。
 
