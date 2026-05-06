@@ -67,7 +67,8 @@ _CHEEK_LEFT_IDX  = 23
 _CHEEK_RIGHT_IDX = 24
 
 # 預先計算 C(25, 2) = 300 對索引
-_PAIRS = np.array(list(combinations(range(len(_KEY_INDICES)), 2)), dtype=int)
+_PAIRS = np.array(list(combinations(range(len(_KEY_INDICES)), 2)), dtype=int) #combinations 產生所有 (i, j) 組合，i < j，總共 300 對, i,j 與 j,i 視為同一對
+# _PAIRS 存的是 _KEY_INDICES 的位置索引（0~24）. 長這樣： (0,1), (0,2), (0,3), ..., (0,24), (1,2), (1,3), ..., (1,24),
 
 # 臉部寬度最小合理值（小於此值視為 MediaPipe 偵測退化）
 MIN_FACE_WIDTH = 1e-5
@@ -133,7 +134,7 @@ def extractFeatures3D(Landmarks3D: np.ndarray) -> np.ndarray | None:
     np.ndarray, shape=(325,)  或  None（退化 / 萃取失敗）
     """
     try:
-        if Landmarks3D.shape != (468, 3):
+        if Landmarks3D.shape != (468, 3): # Landmarks3D 是推論或是圖片去Mediapipe detect時,取到的維度,必須是 (468, 3)
             print(f"[face_feature_3d] 輸入維度錯誤：{Landmarks3D.shape}，預期 (468, 3)")
             return None
 

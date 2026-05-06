@@ -23,6 +23,7 @@ mp_face_landmarker.py
     }
 
 授權：MediaPipe (Apache 2.0) — 商用免費，含模型權重
+使用說明: https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker/python
 """
 
 import os
@@ -194,7 +195,7 @@ class MpFaceLandmarker:
         -------
         (Top, Right, Bottom, Left)
         """
-        XPixels = (Landmarks3D[:, 0] * W).astype(int)
+        XPixels = (Landmarks3D[:, 0] * W).astype(int) # Landmarks3D 的 x 座標乘以影像寬度 W，轉換為像素座標
         YPixels = (Landmarks3D[:, 1] * H).astype(int)
         Left   = int(max(0,     XPixels.min()))
         Right  = int(min(W - 1, XPixels.max()))
@@ -214,7 +215,7 @@ class MpFaceLandmarker:
         """
         def _centerPixel(Indices: list) -> tuple:
             """取指定索引群的平均，轉換為像素座標。"""
-            Points = Landmarks3D[Indices]   # shape=(N, 3)
+            Points = Landmarks3D[Indices]   # shape=(N, 3), ex: _LEFT_EYE_INDICES是六個點的索引,所以 Points 是 (6, 3) 的陣列
             Cx = int(Points[:, 0].mean() * W)
             Cy = int(Points[:, 1].mean() * H)
             return (Cx, Cy)

@@ -6,6 +6,7 @@
 [UI的Export,Import的用法]
 [精簡知識記錄]
 
+[p11要把程式加入原本git的UI]
 標記區: (不懂,要看)
 = = = = = =
 [程式記錄]
@@ -26,6 +27,9 @@
   25 個關鍵點：**
   額頭、眼睛四角×2、眼瞼×2、眉毛×2（外/頂/內）、鼻翼×2、鼻基底、嘴角×2、上下唇、下巴、左右顴骨
   
+  ..  Centered = Landmarks3D - NoseTip, 是表示將468個x,y,z軸資料,每個點的x,y,z跟鼻尖x,y,z值相減.
+    Landmarks3D shape 是 (468, 3)，NoseTip shape 是 (3,),一維陣列三個元素。 
+	
 [face_pose_classifier.py] : Ln 198, (4/30看一次) Signed Yaw / Pitch / Roll → 五類姿態分類（0~4）+ 歪頭偵測
   姿態類別（0~4，供 UI 顯示）:查出是中間,左上,左下,右上,右下
 
@@ -36,14 +40,14 @@
   def _trainMatcher(self) -> None: #訓練 的主要程式
 
   def Predict(self, Frame: np.ndarray) -> list:  #主要做推論(inference, detect)的主程式
-[main.py] : Ln 987, 看到423
+[main.py] : 看完一次
   StealEatStep
 
-[mp_face_landmark.py] : Ln 229, MediaPipe FaceLandmarker 封裝，回傳 (468, 3) landmarks
+[mp_face_landmark.py] : 看完一次,Ln 229, MediaPipe FaceLandmarker 封裝，回傳 (468, 3) landmarks
   def detect(self, Frame: np.ndarray) -> list:
     呼叫 MediaPipe API、解析結果、回傳 Landmarks3D（原始 468×3 座標）
     偵測 BGR 影像中的所有人臉，回傳邊界框、468 個 3D landmark 及關鍵點。
-  UI 顯示學習時的眼鼻嘴點
+  UI 顯示學習時的眼鼻嘴點,也在此處理 ( _buildKeyPoints 函式)
 	
 [svm_classifier_np.py] : Ln 303, 後來換sklearn了,人臉推論主程式,sigmoid,margin 判斷 (sklearn LinearSVC + Z-Score/L2 + KNN 驗證)
   for _, Landmarks3D, KeyPoints in Detections: — 在這裡接收468wfyr 並往下傳
@@ -417,9 +421,14 @@ face_feature_3d.py >>  def extractFeatures3D(Landmarks3D: np.ndarray)
  .. running_mode=mp_vision.RunningMode.IMAGE,
  ..# def __init__(self, MaxFaces: int = 5, MinDetectConf: float = 0.5,  ##這個可以看是否調整
  ..# KeyPoints    = {"left_eye": (cx,cy), "right_eye": (cx,cy), ##看能否回傳25個座標
+ .. self._Landmarker = mp_vision.FaceLandmarker.create_from_options(Options) #要整理mediapipe如何在python裡使用
  .. H, W = Frame.shape[:2]
  .. RgbFrame = Frame[:, :, ::-1].copy()  #H,W照copy, BGR改成RGB
-看到Ln 117
+ .. Landmarks3D = np.array( # 及附近4行
+ .. Results.append((BoundingBox, Landmarks3D, KeyPoints)) #
+ .. XPixels = (Landmarks3D[:, 0] * W).astype(int) 
+ .. Left   = int(max(0,     XPixels.min())) #這方式的好處是一行可以找到Left的最小值,但又不會低於最低值
+ .. Cx = int(Points[:, 0].mean() * W) #ndarray陣列內容取平均值
  
 2. 有一種說法:
 running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
@@ -432,11 +441,11 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
 這樣既能跨幀追蹤改善連貫性，代碼也更簡潔。LIVE_STREAM 主要用於效能優化（非同步不卡主線程），對精準度沒有額外幫助。
 
 [face_feature_3d.py] : Ln 174, 取圖,轉正(姿態正規化),找點,正規化, 325 維特徵萃取
- .. from itertools import combinations
- .. _PAIRS = np.array(list(combinations(range(len(_KEY_INDICES)), 2)), dtype=int)
- .. MIN_FACE_WIDTH = 1e-5
- .. if Landmarks3D.shape != (468, 3):
- .. Centered = Landmarks3D - NoseTip  #這是全468點全對 NoseTip相減嗎?
+ .OK. from itertools import combinations 
+ .OK,學寫法. _PAIRS = np.array(list(combinations(range(len(_KEY_INDICES)), 2)), dtype=int)
+ .OK. MIN_FACE_WIDTH = 1e-5
+ .OK. if Landmarks3D.shape != (468, 3):
+ .OK. Centered = Landmarks3D - NoseTip  #這是全468點全對 NoseTip相減嗎?(是的)
  .. Canonical = (R.T @ Centered.T).T 
  .. 像 x, y, z這樣的資料就叫向量嗎?
  .. NormDists = np.linalg.norm(Vecs, axis=1) / FaceWidth    # shape=(25,)
@@ -452,7 +461,7 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
  .. for PoseCat in range(N_POSES):
  .. if PoseMask.any():
  
-[main.py] 看到 Line 627
+[main.py] 看完一次
  有二個class,一個是主class,另一個是 WebcamManager class
  .. from face_recognizer import FaceRecognizer, UNKNOWN_CLASS  #從別隻自己寫的程式import變數
  .. self._CameraIndex = CameraIndex #需為多台Camera多做選擇考慮嗎?
@@ -491,3 +500,12 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
  .. self.after(0, lambda: (  # 後面那行是做什麼?
  .. FilePath = FileDialog.asksaveasfilename(  # askopenfilenames
  .. PersonList = '、'.join(ImportedPersons)
+ .. PoseDetail = "  ".join(  # 前後幾行都很重要
+ .. self._InferenceActive = True  # 這是Ln 976,要查為什麼
+ .. self.after(0, lambda A=Added, K=KP, P=PoseCat, Y=Yaw, Pi=Pitch:
+ .. self._Recognizer.SetThresholds(MarginThresh=Value) # 要做筆記,SetThresholds函式可放三個參數,但可依需要只放其中一個
+ .. self.destroy()
+ .. if __name__ == "__main__":
+ .. customtkinter.set_appearance_mode("dark") # 附近都要查
+ .. App = MainApp()
+ .. App.mainloop()

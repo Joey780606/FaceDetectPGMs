@@ -981,7 +981,7 @@ class MainApp(customtkinter.CTk):
                         try:
                             Added, KP, PoseCat, Yaw, Pitch = self._Recognizer.AddSample(
                                 FrameCopy, PersonName, Retrain=False, FrontalOnly=True
-                            )
+                            )   # Added 是否成功加入新樣本，KP 是偵測到的關鍵點列表，PoseCat 是姿態分類結果，Yaw/Pitch 是原始姿態數值
                             self.after(0, lambda A=Added, K=KP, P=PoseCat, Y=Yaw, Pi=Pitch:
                                        self._OnLearnSampleAdded(A, K, P, Y, Pi))
                         except Exception as Error:
@@ -998,6 +998,7 @@ class MainApp(customtkinter.CTk):
     def _OnLearnSampleAdded(self, Added: bool, KeyPoints: list,
                             PoseCat: int, Yaw: float = 0.0,
                             Pitch: float = 0.0) -> None:
+        # Added 是否成功加入新樣本，KeyPoints 是偵測到的關鍵點列表，PoseCat 是姿態分類結果，Yaw/Pitch 是原始姿態數值
         """學習樣本加入回調（主執行緒）。"""
         if not self._LearnActive:
             return
