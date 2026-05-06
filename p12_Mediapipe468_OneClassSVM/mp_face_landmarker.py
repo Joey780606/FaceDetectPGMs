@@ -85,8 +85,8 @@ class MpFaceLandmarker:
     不做 dlib 68 點轉換（p12 直接使用全部 468 點作為特徵）。
     """
 
-    def __init__(self, MaxFaces: int = 5, MinDetectConf: float = 0.5,
-                 MinPresenceConf: float = 0.5, MinTrackConf: float = 0.5,
+    def __init__(self, MaxFaces: int = 1, MinDetectConf: float = 0.7,
+                 MinPresenceConf: float = 0.7, MinTrackConf: float = 0.7,
                  ModelPath: str = _MODEL_FILENAME):
         """
         Parameters
@@ -105,10 +105,10 @@ class MpFaceLandmarker:
             Options     = mp_vision.FaceLandmarkerOptions(
                 base_options=BaseOptions,
                 running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
-                num_faces=MaxFaces,
-                min_face_detection_confidence=MinDetectConf,
-                min_face_presence_confidence=MinPresenceConf,
-                min_tracking_confidence=MinTrackConf,
+                num_faces=MaxFaces, #最多一張
+                min_face_detection_confidence=MinDetectConf, #偵測信心度,越高越嚴格,光線暗或側臉時會抓不到
+                min_face_presence_confidence=MinPresenceConf, #存在信心度,越高越嚴格,在LIVE_STREAM模式下較重要
+                min_tracking_confidence=MinTrackConf,   #追蹤信心
             )
             self._Landmarker = mp_vision.FaceLandmarker.create_from_options(Options)
         except Exception as Error:

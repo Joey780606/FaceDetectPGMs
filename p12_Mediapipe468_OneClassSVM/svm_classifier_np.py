@@ -20,7 +20,7 @@ from sklearn.svm import OneClassSVM
 
 # 信心度閾值預設值（OneClassSVM raw decision score，低於此值 → Unknown）
 # slider 範圍：-1.0 ~ 1.0
-SVM_CONF_THRESH = 0.0
+SVM_CONF_THRESH = -0.15
 
 # 分差閾值預設值（top-1 與 top-2 分差低於此值 → Unknown）
 # slider 範圍：0.0 ~ 3.0
@@ -33,7 +33,7 @@ COSINE_VERIFY_THRESH = -1.0
 # KNN 驗證參數
 KNN_K              = 5     # 比對最近 K 個訓練樣本
 KNN_PERCENTILE     = 80    # 閾值 = 訓練樣本 KNN 距離的第 P 百分位數
-KNN_VERIFY_ENABLED = False # True = 開啟 KNN 驗證；False = 關閉
+KNN_VERIFY_ENABLED = False  # True = 開啟 KNN 驗證；False = 關閉
 
 # OneClassSVM 超參數
 SVM_NU     = 0.05       # 訓練集中異常點比例上限（0 < nu ≤ 1）,越高越嚴格

@@ -230,7 +230,7 @@ face_feature_3d.py >>  def extractFeatures3D(Landmarks3D: np.ndarray)
 2. MediaPipe提供的資料,有無468個有那些是虛擬出來的?或是有什麼資訊表示臉的關鍵部分已看不到,或已經不精準? (可以試調)
 3. 換個角度試,確認是Joey,幫忙測若是我轉角度,歪頭時,MediaPipe算出的468點(或25點,325角跟目前存的值,差異有多大?)
 
-4. 更新 Learning 與 Inference 的間隔時間.
+4. 更新 Learning 與 Inference 的間隔時間. 785577926cb4cdfcfa23951770619a04d611ab68
 
 
 <<除了利用歸一化外,臉部座標還有做什麼處理?>>
