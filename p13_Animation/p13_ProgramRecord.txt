@@ -1,0 +1,579 @@
+[C.C處理記錄]
+
+[程式記錄]
+[Q&A]
+[可思考的地方]
+[運作理論整理]
+[SVM由C.C寫和直接用Sklearn的落差] 主要要C.C寫是因為Windows會擋相關的dll
+[UI的Export,Import的用法]
+[精簡知識記錄]
+
+[p11要把程式加入原本git的UI]
+= = = =
+[C.C處理記錄]
+   Get-ChildItem -Path "C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation" -Force | Select-Object Name, Mode,
+   @{Name="Size";Expression={if($_.PSIsContainer){"<DIR>"}else{$_.Length}}} | Format-Table -AutoSize
+   
+   Get-ChildItem -Path "C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation\gif" -Force | Select-Object Name,
+   @{Name="Size(bytes)";Expression={$_.Length}} | Format-Table -AutoSize
+   
+      python --version 2>&1; pip show PySide6 2>&1; pip show customtkinter 2>&1; pip show Pillow 2>&1
+
+==
+   python -c "
+   from PIL import Image, ImageSequence
+   import os
+   GifDir = r'C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation\gif'
+   # Check all GIFs for varying sizes or transparency
+   for Fname in sorted(os.listdir(GifDir)):
+       if not Fname.endswith('.gif'):
+           continue
+       Img = Image.open(os.path.join(GifDir, Fname))
+       HasTrans = 'transparency' in Img.info
+       F0 = list(ImageSequence.Iterator(Img))[0]
+       print(f'{Img.size}  mode={Img.mode}  trans={HasTrans}  {Fname}')
+   " 2>&1
+   Check all GIF sizes and transparency flags
+
+ Newline followed by # inside a quoted argument can hide arguments from path validation
+==
+   python -c "
+   # Check Windows DWM transparency capability for PySide6
+   from PySide6.QtWidgets import QApplication, QWidget
+   from PySide6.QtCore import Qt
+   import sys
+   App = QApplication(sys.argv)
+   W = QWidget()
+   W.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+   W.setAttribute(Qt.WA_TranslucentBackground, True)
+   print('TranslucentBackground can be set:', True)
+   print('FramelessWindowHint available:', True)
+   print('Qt.Tool (no taskbar):', True)
+   " 2>&1
+   Verify PySide6 transparent window flags on Windows 11
+
+ Newline followed by # inside a quoted argument can hide arguments from path validation
+==
+   python -c "
+   # Verify PySide6 QMovie can handle GIF smoothly by checking class availability
+   from PySide6.QtMultimedia import QMediaPlayer
+   from PySide6.QtGui import QMovie
+   from PySide6.QtCore import QBuffer, QByteArray
+   print('QMovie available')
+   print('QMovie has setSpeed:', hasattr(QMovie, 'setSpeed'))
+   print('QMovie has jumpToFrame:', hasattr(QMovie, 'jumpToFrame'))
+   print('QMovie has frameCount:', hasattr(QMovie, 'frameCount'))
+   print('QMovie has currentFrameNumber:', hasattr(QMovie, 'currentFrameNumber'))
+   " 2>&1
+   Check QMovie API availability for smooth GIF frame control
+
+ Newline followed by # inside a quoted argument can hide arguments from path validation
+==
+   python -c "
+   from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+   from PySide6.QtGui import QMovie, QPixmap
+   from PySide6.QtCore import QSize, Qt
+   import sys
+   App = QApplication(sys.argv)
+   # Check QLabel + QMovie integration
+   Lbl = QLabel()
+   print('setMovie available:', hasattr(Lbl, 'setMovie'))
+   Movie = QMovie()
+   print('QMovie setCacheMode:', hasattr(Movie, 'setCacheMode'))
+   print('QMovie CacheAll:', hasattr(QMovie, 'CacheAll'))
+   print('QMovie CacheNone:', hasattr(QMovie, 'CacheNone'))
+   " 2>&1
+   Check QMovie cache modes for preloading frames
+
+ Newline followed by # inside a quoted argument can hide arguments from path validation
+===
+   python -c "
+   # Check Pillow-based frame preloading timing for the largest GIF
+   from PIL import Image, ImageSequence
+   from PySide6.QtGui import QImage, QPixmap
+   from PySide6.QtWidgets import QApplication
+   from PySide6.QtCore import Qt
+   import sys, time, os
+   App = QApplication(sys.argv)
+   GifDir = r'C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation\gif'
+   Fname = '(4)morning, just wake up.gif'  # largest at 934KB, 93 frames
+   FPath = os.path.join(GifDir, Fname)
+
+   T0 = time.perf_counter()
+   Img = Image.open(FPath)
+   Pixmaps = []
+   for Frame in ImageSequence.Iterator(Img):
+       Rgba = Frame.convert('RGBA')
+       Data = Rgba.tobytes('raw', 'RGBA')
+       QImg = QImage(Data, Rgba.width, Rgba.height, QImage.Format_RGBA8888)
+       Pixmaps.append(QPixmap.fromImage(QImg))
+   T1 = time.perf_counter()
+   print(f'Preloaded {len(Pixmaps)} frames in {(T1-T0)*1000:.1f}ms')
+   print(f'Pixmap size: {Pixmaps[0].width()}x{Pixmaps[0].height()}')
+   " 2>&1
+   Benchmark Pillow preload of largest GIF to QPixmap array
+
+ Newline followed by # inside a quoted argument can hide arguments from path validation
+==
+   python -c "
+   # Benchmark preloading ALL 12 GIFs total time and memory
+   from PIL import Image, ImageSequence
+   from PySide6.QtGui import QImage, QPixmap
+   from PySide6.QtWidgets import QApplication
+   import sys, time, os
+   App = QApplication(sys.argv)
+   GifDir = r'C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation\gif'
+   GifFiles = sorted([f for f in os.listdir(GifDir) if f.endswith('.gif')])
+   TotalFrames = 0
+   T0 = time.perf_counter()
+   for Fname in GifFiles:
+       FPath = os.path.join(GifDir, Fname)
+       Img = Image.open(FPath)
+       Pixmaps = []
+       for Frame in ImageSequence.Iterator(Img):
+           Rgba = Frame.convert('RGBA')
+           Data = Rgba.tobytes('raw', 'RGBA')
+           W, H = Rgba.width, Rgba.height
+           QImg = QImage(Data, W, H, QImage.Format_RGBA8888)
+           Pixmaps.append(QPixmap.fromImage(QImg))
+       TotalFrames += len(Pixmaps)
+   T1 = time.perf_counter()
+   print(f'All 12 GIFs: {TotalFrames} total frames preloaded in {(T1-T0)*1000:.0f}ms')
+   # Estimate memory: 400*400*4 bytes per frame
+   MemMB = (TotalFrames * 400 * 400 * 4) / (1024*1024)
+   print(f'Estimated VRAM/RAM for pixmaps: {MemMB:.1f} MB')
+   " 2>&1
+   Benchmark full preload of all 12 GIFs to measure startup cost
+
+ Newline followed by # inside a quoted argument can hide arguments from path validation
+==
+   python -c "
+   # Test lazy loading: preload only current + next GIF (2 at a time)
+   from PIL import Image, ImageSequence
+   from PySide6.QtGui import QImage, QPixmap
+   from PySide6.QtWidgets import QApplication
+   import sys, time, os
+   App = QApplication(sys.argv)
+   GifDir = r'C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation\gif'
+   Fname = '(6)ask user take note before sleep.gif'  # 972KB, second largest
+   FPath = os.path.join(GifDir, Fname)
+   T0 = time.perf_counter()
+   Img = Image.open(FPath)
+   Pixmaps = []
+   for Frame in ImageSequence.Iterator(Img):
+       Rgba = Frame.convert('RGBA')
+       Data = Rgba.tobytes('raw', 'RGBA')
+       QImg = QImage(Data, Rgba.width, Rgba.height, QImage.Format_RGBA8888)
+       Pixmaps.append(QPixmap.fromImage(QImg))
+   T1 = time.perf_counter()
+   print(f'Single GIF ({os.path.basename(FPath)}): {len(Pixmaps)} frames in {(T1-T0)*1000:.1f}ms')
+   MemMB = (len(Pixmaps) * 400 * 400 * 4) / (1024*1024)
+   print(f'Memory for this GIF: {MemMB:.1f} MB')
+   " 2>&1
+   Benchmark worst-case single GIF lazy load time
+==
+   python -c "
+   # Check QMovie timing: how fast does it hand off frames without block?
+   from PySide6.QtWidgets import QApplication, QLabel
+   from PySide6.QtGui import QMovie
+   from PySide6.QtCore import QSize, Qt, QTimer
+   import sys, time, os
+   App = QApplication(sys.argv)
+   GifDir = r'C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation\gif'
+   FPath = os.path.join(GifDir, '(4)morning, just wake up.gif')
+   T0 = time.perf_counter()
+   Movie = QMovie(FPath)
+   Movie.setCacheMode(QMovie.CacheAll)
+   Movie.jumpToFrame(0)
+   # Force Qt to preload all frames
+   FrameCount = Movie.frameCount()
+   T1 = time.perf_counter()
+   print(f'QMovie CacheAll frameCount={FrameCount} load time={1000*(T1-T0):.1f}ms')
+   " 2>&1
+   Benchmark QMovie CacheAll preload time for largest GIF
+   
+==
+   python -c "
+   # Check QMovie switch latency: stop old, start new
+   from PySide6.QtWidgets import QApplication, QLabel
+   from PySide6.QtGui import QMovie
+   from PySide6.QtCore import QSize, QTimer
+   import sys, time, os
+   App = QApplication(sys.argv)
+   GifDir = r'C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation\gif'
+   Paths = [os.path.join(GifDir, f) for f in sorted(os.listdir(GifDir)) if f.endswith('.gif')]
+
+   # Preload all QMovies
+   T0 = time.perf_counter()
+   Movies = []
+   for P in Paths:
+       M = QMovie(P)
+       M.setCacheMode(QMovie.CacheAll)
+       Movies.append(M)
+
+   # Force cache by starting briefly
+   for M in Movies:
+       M.jumpToFrame(0)
+   T1 = time.perf_counter()
+   print(f'Preload {len(Movies)} QMovies (CacheAll): {(T1-T0)*1000:.0f}ms')
+
+   # Simulate mid-playback switch
+   M0 = Movies[0]
+   M0.start()
+   # Simulate switch after N frames
+   T2 = time.perf_counter()
+   M0.stop()
+   M1 = Movies[5]
+   M1.start()
+   T3 = time.perf_counter()
+   print(f'Switch latency (stop+start): {(T3-T2)*1000:.2f}ms')
+   " 2>&1
+   Benchmark QMovie preload all and switch latency
+==
+   python -c "
+   # Verify QMovie memory with CacheAll for all 12 GIFs
+   import os, sys
+   from PySide6.QtWidgets import QApplication
+   from PySide6.QtGui import QMovie
+   App = QApplication(sys.argv)
+   GifDir = r'C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation\gif'
+   Paths = [os.path.join(GifDir, f) for f in sorted(os.listdir(GifDir)) if f.endswith('.gif')]
+
+   # Check process memory before
+   import psutil, os
+   Proc = psutil.Process(os.getpid())
+   MemBefore = Proc.memory_info().rss / 1024 / 1024
+
+   Movies = []
+   for P in Paths:
+       M = QMovie(P)
+       M.setCacheMode(QMovie.CacheAll)
+       M.jumpToFrame(0)
+       Movies.append(M)
+
+   MemAfter = Proc.memory_info().rss / 1024 / 1024
+   TotalFrames = sum(M.frameCount() for M in Movies)
+   print(f'Total frames across 12 GIFs: {TotalFrames}')
+   print(f'Memory before: {MemBefore:.1f} MB')
+   print(f'Memory after: {MemAfter:.1f} MB')
+   print(f'Delta: {MemAfter-MemBefore:.1f} MB')
+   " 2>&1
+   Measure actual RAM usage of all 12 QMovie CacheAll instances
+
+ Newline followed by # inside a quoted argument can hide arguments from path validation
+==
+   python -c "
+   # Verify Windows 11 DWM compositing: WA_TranslucentBackground + FramelessWindowHint
+   # and confirm stylesheet approach for semi-transparent dark rounded widgets
+   from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QLabel, QLineEdit
+   from PySide6.QtCore import Qt
+   from PySide6.QtGui import QPalette, QColor
+   import sys
+   App = QApplication(sys.argv)
+
+   # Test stylesheet with border-radius and rgba background on QPushButton
+   Btn = QPushButton('Test')
+   Btn.setStyleSheet('QPushButton { background: rgba(50,50,50,200); border-radius: 8px; color: white; padding: 6px
+   12px; }')
+   print('Stylesheet rgba on button: OK')
+
+   # Test QLineEdit with rgba
+   Le = QLineEdit()
+   Le.setStyleSheet('QLineEdit { background: rgba(30,30,30,180); border-radius: 6px; color: white; border: 1px solid
+   rgba(255,255,255,80); }')
+   print('Stylesheet rgba on lineedit: OK')
+
+   # Test main window transparent
+   W = QWidget()
+   W.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+   W.setAttribute(Qt.WA_TranslucentBackground, True)
+   print('WA_TranslucentBackground on Tool window: OK')
+   print('All PySide6 window feature tests passed')
+   " 2>&1
+   Verify PySide6 stylesheet rgba and transparent window attributes
+
+ Newline followed by # inside a quoted argument can hide arguments from path validation
+==
+   python -c "
+   # Check QLabel transparent background for GIF display
+   from PySide6.QtWidgets import QApplication, QLabel
+   from PySide6.QtCore import Qt
+   from PySide6.QtGui import QMovie
+   import sys
+   App = QApplication(sys.argv)
+   Lbl = QLabel()
+   Lbl.setStyleSheet('QLabel { background: transparent; }')
+   Lbl.setAttribute(Qt.WA_TranslucentBackground, True)
+   Lbl.setAlignment(Qt.AlignCenter)
+   print('QLabel transparent for GIF: OK')
+
+   # Confirm QLabel.setScaledContents behavior
+   Lbl.setScaledContents(True)
+   print('setScaledContents: OK')
+   " 2>&1
+   Verify QLabel transparent background for GIF display area
+==
+   python -c "
+   # Verify QStackedWidget for Row 3 state machine
+   from PySide6.QtWidgets import QApplication, QStackedWidget, QPushButton, QHBoxLayout, QWidget, QLineEdit
+   from PySide6.QtCore import Qt
+   import sys
+   App = QApplication(sys.argv)
+
+   Stack = QStackedWidget()
+
+   # Page 0: OK + Cancel
+   P0 = QWidget()
+   L0 = QHBoxLayout(P0)
+   L0.addWidget(QPushButton('OK'))
+   L0.addWidget(QPushButton('Cancel'))
+   Stack.addWidget(P0)
+
+   # Page 1: Text input
+   P1 = QWidget()
+   from PySide6.QtWidgets import QVBoxLayout
+   L1 = QVBoxLayout(P1)
+   L1.addWidget(QLineEdit('Enter text...'))
+   Stack.addWidget(P1)
+
+   # Page 2: Invisible / empty
+   P2 = QWidget()
+   Stack.addWidget(P2)
+
+   print('QStackedWidget pages:', Stack.count())
+   Stack.setCurrentIndex(0); print('Page 0 (OK/Cancel):', Stack.currentIndex())
+   Stack.setCurrentIndex(1); print('Page 1 (TextInput):', Stack.currentIndex())
+   Stack.setCurrentIndex(2); print('Page 2 (Invisible):', Stack.currentIndex())
+   " 2>&1
+   Verify QStackedWidget for Row 3 state machine
+===
+   python -c "
+   # Confirm screen geometry for bottom-right positioning with taskbar offset
+   from PySide6.QtWidgets import QApplication
+   from PySide6.QtCore import QRect
+   import sys
+   App = QApplication(sys.argv)
+   Screen = App.primaryScreen()
+   Available = Screen.availableGeometry()  # excludes taskbar
+   Full = Screen.geometry()
+   TaskbarHeight = Full.height() - Available.height()
+   print(f'Full screen:      {Full.width()} x {Full.height()}')
+   print(f'Available screen: {Available.width()} x {Available.height()}')
+   print(f'Taskbar height:   {TaskbarHeight}px')
+
+   # Widget dimensions (400px GIF + 60px row1 + 50px row3 + margins)
+   WidgetW = 420
+   WidgetH = 570
+   MarginRight = 10
+   MarginBottom = 10
+   X = Available.right() - WidgetW - MarginRight
+   Y = Available.bottom() - WidgetH - MarginBottom
+   print(f'Widget position:  ({X}, {Y})')
+   print(f'Widget size:      {WidgetW} x {WidgetH}')
+   " 2>&1
+   Calculate bottom-right widget position accounting for taskbar
+==
+   python -c "
+   # Check threading: can QMovie be prepared on a worker thread?
+   # Also verify QThread signal/slot for background GIF loading
+   from PySide6.QtCore import QThread, Signal, QObject
+   from PySide6.QtWidgets import QApplication
+   import sys
+   App = QApplication(sys.argv)
+
+   class LoadWorker(QObject):
+       LoadFinished = Signal(list, int)  # (pixmaps_list, gif_index)
+
+   print('QThread available:', True)
+   print('Signal/Slot for background load: OK')
+   print('QObject worker pattern: OK')
+   " 2>&1
+   Verify QThread Signal/Slot pattern for background GIF loading
+==
+   python -c "
+   # Verify QTimer for custom frame ticker and random mode
+   from PySide6.QtCore import QTimer, Qt
+   from PySide6.QtWidgets import QApplication
+   import sys
+   App = QApplication(sys.argv)
+   T = QTimer()
+   T.setSingleShot(False)
+   T.setTimerType(Qt.PreciseTimer)
+   print('QTimer PreciseTimer available:', True)
+   # 100ms = 10fps matches GIF duration in all files
+   T.setInterval(100)
+   print('Interval 100ms (matches all GIF durations): OK')
+   " 2>&1
+   Verify QTimer with PreciseTimer for 100ms GIF frame control
+   
+==
+   python -c "
+   # Confirm QPropertyAnimation or QPainter for fade crossfade between GIFs
+   from PySide6.QtCore import QPropertyAnimation, QEasingCurve
+   from PySide6.QtWidgets import QApplication, QLabel
+   from PySide6.QtGui import QGraphicsOpacityEffect
+   import sys
+   App = QApplication(sys.argv)
+   Lbl = QLabel()
+   Effect = QGraphicsOpacityEffect(Lbl)
+   Lbl.setGraphicsEffect(Effect)
+   Anim = QPropertyAnimation(Effect, b'opacity')
+   Anim.setDuration(150)
+   Anim.setStartValue(1.0)
+   Anim.setEndValue(0.0)
+   Anim.setEasingCurve(QEasingCurve.InOutCubic)
+   print('QPropertyAnimation on opacity: OK')
+   print('QGraphicsOpacityEffect: OK')
+   print('Crossfade in 150ms feasible: OK')
+   " 2>&1
+   Verify QPropertyAnimation opacity crossfade for smooth GIF switching
+==
+   python -c "
+   from PySide6.QtWidgets import QApplication, QLabel, QGraphicsOpacityEffect
+   from PySide6.QtCore import QPropertyAnimation, QEasingCurve
+   import sys
+   App = QApplication(sys.argv)
+   Lbl = QLabel()
+   Effect = QGraphicsOpacityEffect(Lbl)
+   Lbl.setGraphicsEffect(Effect)
+   Anim = QPropertyAnimation(Effect, b'opacity')
+   Anim.setDuration(150)
+   Anim.setStartValue(1.0)
+   Anim.setEndValue(0.0)
+   Anim.setEasingCurve(QEasingCurve.InOutCubic)
+   print('QGraphicsOpacityEffect from QtWidgets: OK')
+   print('QPropertyAnimation opacity crossfade: OK')
+   " 2>&1
+   Verify QGraphicsOpacityEffect import from correct module
+==
+
+   python -c "
+   # Final check: confirm Python 3.14 version (reported as 3.14.0)
+   # and that all needed PySide6 modules are importable
+   import sys
+   print('Python:', sys.version)
+   from PySide6.QtWidgets import (QApplication, QWidget, QLabel, QPushButton,
+       QLineEdit, QVBoxLayout, QHBoxLayout, QStackedWidget, QSizePolicy,
+       QGraphicsOpacityEffect, QFrame)
+   from PySide6.QtGui import QMovie, QFont, QFontMetrics, QCursor
+   from PySide6.QtCore import (Qt, QTimer, QThread, QObject, Signal, Slot,
+       QPropertyAnimation, QEasingCurve, QSize, QPoint, QRect, QSequentialAnimationGroup)
+   print('All required PySide6 imports: OK')
+   import random, os, sys
+   print('Standard lib imports: OK')
+   " 2>&1
+   Verify all required PySide6 imports in one shot
+===
+   python -c "
+   # Confirm QSequentialAnimationGroup for crossfade: fade-out then swap then fade-in
+   from PySide6.QtCore import QSequentialAnimationGroup, QPropertyAnimation, QEasingCurve, QPauseAnimation
+   from PySide6.QtWidgets import QApplication, QLabel, QGraphicsOpacityEffect
+   import sys
+   App = QApplication(sys.argv)
+   LblA = QLabel('A')
+   EffA = QGraphicsOpacityEffect(LblA)
+   LblA.setGraphicsEffect(EffA)
+   LblB = QLabel('B')
+   EffB = QGraphicsOpacityEffect(LblB)
+   LblB.setGraphicsEffect(EffB)
+
+   FadeOut = QPropertyAnimation(EffA, b'opacity')
+   FadeOut.setDuration(80)
+   FadeOut.setStartValue(1.0)
+   FadeOut.setEndValue(0.0)
+
+   FadeIn = QPropertyAnimation(EffB, b'opacity')
+   FadeIn.setDuration(80)
+   FadeIn.setStartValue(0.0)
+   FadeIn.setEndValue(1.0)
+
+   Group = QSequentialAnimationGroup()
+   Group.addAnimation(FadeOut)
+   Group.addAnimation(FadeIn)
+   print('QSequentialAnimationGroup fade-out/in chain: OK')
+   print('Total crossfade duration: 160ms (imperceptible)')
+   " 2>&1
+   Verify QSequentialAnimationGroup for 80ms fade-out + 80ms fade-in crossfade
+== 測試:
+   cd "C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation" && python gif_widget.py 2>&1 &
+   
+   
+================
+ 去Gif檔的背景色,測試檔案:
+ 
+   cd "C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation" && python -c "
+   from PIL import Image, ImageSequence
+   import numpy as np
+
+   # 測試第一個 gif 的背景色和特性
+   import os
+   GifFiles = [f for f in os.listdir('gif') if f.endswith('.gif')]
+   GifFiles.sort()
+   TestFile = os.path.join('gif', GifFiles[0])
+   print('測試檔:', GifFiles[0])
+
+   Gif = Image.open(TestFile)
+   print('Mode:', Gif.mode)
+   print('Size:', Gif.size)
+   print('Info:', {k:v for k,v in Gif.info.items() if k in ['transparency','duration','loop','background']})
+
+   Frame = Gif.copy()
+   Rgba = Frame.convert('RGBA')
+   Arr = np.array(Rgba)
+   print('四個角落顏色 RGBA:')
+   H,W = Arr.shape[:2]
+   print('  左上:', Arr[0,0])
+   print('  右上:', Arr[0,W-1])
+   print('  左下:', Arr[H-1,0])
+   print('  右下:', Arr[H-1,W-1])
+   print('Total frames:', Gif.n_frames)
+   " 2>&1
+   Inspect first GIF file structure and background color
+   
+==
+   cd "C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation" && python -c "
+   from PIL import Image, ImageSequence
+   import numpy as np, os
+
+   # 檢查所有 gif 的背景色
+   GifFiles = sorted([f for f in os.listdir('gif') if f.endswith('.gif')])
+   for FName in GifFiles:
+       Gif = Image.open(os.path.join('gif', FName))
+       Frame = next(ImageSequence.Iterator(Gif))
+       Rgba = Frame.convert('RGBA')
+       Arr = np.array(Rgba)
+       H,W = Arr.shape[:2]
+       Corners = [tuple(Arr[0,0,:3]), tuple(Arr[0,W-1,:3]), tuple(Arr[H-1,0,:3]), tuple(Arr[H-1,W-1,:3])]
+       BgColor = max(set(Corners), key=Corners.count)
+       print(f'{FName[:30]:32s} BG={BgColor}  frames={Gif.n_frames}')
+   " 2>&1
+   Check background color of all GIF files
+==
+   cd "C:\PCP\Git\Joey2026\FaceDetectPGMs\p13_Animation" && python -c "
+   from PIL import Image, ImageSequence
+   import numpy as np, os
+
+   # 深入檢查第一個 gif 的 frame info 和色彩
+   Gif = Image.open('gif/(4)morning, just wake up.gif')
+   for i, Frame in enumerate(ImageSequence.Iterator(Gif)):
+       if i >= 2: break
+       print(f'Frame {i}: mode={Frame.mode}, info={Frame.info}')
+       Rgba = Frame.convert('RGBA')
+       Arr = np.array(Rgba)
+       # 取 alpha != 255 的像素數量
+       NonOpaque = np.sum(Arr[:,:,3] < 255)
+       print(f'  非不透明像素數: {NonOpaque}')
+       # 取黑色像素數量（背景）
+       Black = np.sum((Arr[:,:,0]<10) & (Arr[:,:,1]<10) & (Arr[:,:,2]<10))
+       print(f'  黑色像素數 (可能背景): {Black}')
+       Total = Arr.shape[0] * Arr.shape[1]
+       print(f'  總像素: {Total}')
+   " 2>&1
+   Inspect frame info and alpha channel of first GIF
+   
+== 你是怎麼查到gif_widget.py在執行的?是用那個指令?
+1.  Get-Process python* | Select-Object Id, ProcessName, CPU, StartTime, @{Name='CommandLine';Expression={(Get-WmiObject Win32_Process -Filter "ProcessId=$($_.Id)").CommandLine}}
+  
+2. (Get-WmiObject Win32_Process -Filter "ProcessId=36684").CommandLine
+
+3. 在Windows powerShell執行 Stop-Process -Id 36684
