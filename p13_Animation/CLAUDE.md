@@ -25,7 +25,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## UI
 1. 設計為Widget小工具,所以使用的元件,背景最好都是透明的.
 2. 畫面出現在螢幕右下角.
-3. 目前若以gif變化為設計方向,現在有"gif"目錄,裡面存放gif檔.UI預計有3 rows:
+3. 目前若以gif變化為設計方向,現在有"gif"目錄,裡面存放gif檔.UI預計有4 rows:
  Row 1: 有三個按鈕.分別是"上一個","下一個","隨機撥放".按"上一個",換上個gif檔. 按"下一個",換下個gif檔. 按"隨機撥放",若gif動畫撥放完,換下個動畫.
- Row 2: gif圖檔顯示區.
+ Row 2: Label,裡面預設"This is test texts. Check UI is OK or not." 如果Row 1任何按鍵按下時,上述的字就再多增加一次,直到文字長度超過2000字,再變回預設值.
  Row 3: 先設計三種型態,第一種是二個button,"OK"和"Cancel". 第二種是文字輸入框. 第三種是Row3看不見. 每切換一個gif檔,就按上述型態輪流顯示.
+ Row 4: gif圖檔顯示區.
+4. Row 2, Row 3想共用一個白底方型為背景,邊框以黑色包圍,當內容變化時,背景也要能跟著包含內容.
+

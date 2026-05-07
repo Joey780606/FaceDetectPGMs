@@ -2,7 +2,7 @@
 
 # 視窗尺寸
 WIDGET_WIDTH = 420
-WIDGET_HEIGHT = 570
+WIDGET_HEIGHT = 620
 
 # GIF 顯示區尺寸
 GIF_DISPLAY_SIZE = 400
@@ -13,6 +13,9 @@ CROSSFADE_MS = 80
 # 視窗與螢幕邊緣間距
 MARGIN_RIGHT = 10
 MARGIN_BOTTOM = 10
+
+# Row 2 高度
+ROW2_HEIGHT = 80
 
 # Row 3 高度
 ROW3_HEIGHT = 60
@@ -100,6 +103,26 @@ STYLE_BUTTON_CANCEL = """
     }
     QPushButton:pressed {
         background: rgba(55, 35, 35, 220);
+    }
+"""
+
+# Row 2+3 共用白底容器 stylesheet
+STYLE_CONTENT_BOX = """
+    QWidget#ContentBox {
+        background: white;
+        border: 2px solid #1a1a1a;
+        border-radius: 6px;
+    }
+"""
+
+# Row 2 文字框 stylesheet（透明背景，深色字）
+STYLE_ROW2_TEXT = """
+    QTextEdit {
+        background: transparent;
+        color: #1a1a1a;
+        border: none;
+        font-size: 12px;
+        font-family: "Microsoft JhengHei", "Microsoft YaHei", sans-serif;
     }
 """
 

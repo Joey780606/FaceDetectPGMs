@@ -1,13 +1,17 @@
 # 主視窗：透明浮動視窗，組裝三排 Layout，連接所有訊號
 
 import os
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QApplication
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QApplication
 from PySide6.QtCore import Qt, QCoreApplication
 from gif_player import GifPlayer
 from row_controls import RowControls
 from row_display import RowDisplay
 from row_interaction import RowInteraction
-from style_constants import WIDGET_WIDTH, WIDGET_HEIGHT, MARGIN_RIGHT, MARGIN_BOTTOM, STYLE_PANEL
+from row_label import RowLabel
+from style_constants import (
+    WIDGET_WIDTH, WIDGET_HEIGHT, MARGIN_RIGHT, MARGIN_BOTTOM,
+    STYLE_PANEL, STYLE_CONTENT_BOX
+)
 
 
 class WidgetWindow(QWidget):
@@ -40,13 +44,14 @@ class WidgetWindow(QWidget):
         try:
             self._Player = GifPlayer(self)
             self._RowControls = RowControls(self)
+            self._RowLabel = RowLabel(self)
             self._RowDisplay = RowDisplay(self)
             self._RowInteraction = RowInteraction(self)
         except Exception as E:
             print(f'子元件建立失敗: {E}')
 
     def _setupLayout(self) -> None:
-        """組裝深色玻璃面板 + 三排 Layout。"""
+        """組裝深色玻璃面板 + 四排 Layout。"""
         try:
             # 外層：透明的頂層視窗
             OuterLayout = QVBoxLayout(self)
@@ -65,10 +70,24 @@ class WidgetWindow(QWidget):
             # Row 1：控制按鈕
             PanelLayout.addWidget(self._RowControls)
 
-            # Row 2：互動區
-            PanelLayout.addWidget(self._RowInteraction)
+            # Row 2 + Row 3：共用白底容器（黑框）
+            self._ContentBox = QWidget(self._Panel)
+            self._ContentBox.setObjectName('ContentBox')
+            self._ContentBox.setAttribute(Qt.WA_StyledBackground, True)
+            self._ContentBox.setStyleSheet(STYLE_CONTENT_BOX)
+            ContentLayout = QVBoxLayout(self._ContentBox)
+            ContentLayout.setContentsMargins(8, 8, 8, 8)
+            ContentLayout.setSpacing(4)
+            ContentLayout.addWidget(self._RowLabel)       # Row 2
+            ContentLayout.addWidget(self._RowInteraction) # Row 3
 
-            # Row 3：GIF 顯示區（置中）
+            # 左右加邊距，使白底框不貼齊 Panel 邊緣
+            ContentBoxRow = QHBoxLayout()
+            ContentBoxRow.setContentsMargins(12, 0, 12, 8)
+            ContentBoxRow.addWidget(self._ContentBox)
+            PanelLayout.addLayout(ContentBoxRow)
+
+            # Row 4：GIF 顯示區（置中）
             PanelLayout.addWidget(self._RowDisplay, 0, Qt.AlignHCenter)
             OuterLayout.addWidget(self._Panel)
 
@@ -83,6 +102,11 @@ class WidgetWindow(QWidget):
             self._RowControls.NextRequested.connect(self._Player.switchNext)
             self._RowControls.RandomToggled.connect(self._Player.toggleRandom)
             self._RowControls.CloseRequested.connect(QCoreApplication.quit)
+
+            # Row 1 按鈕 → Row 2 文字追加（隨機撥放帶 bool，用 lambda 忽略）
+            self._RowControls.PrevRequested.connect(self._RowLabel.appendText)
+            self._RowControls.NextRequested.connect(self._RowLabel.appendText)
+            self._RowControls.RandomToggled.connect(self._RowLabel.appendText)
 
             # GifPlayer 切換 → RowDisplay 過場 + Row3 模式推進
             self._Player.GifSwitched.connect(self._RowDisplay.triggerCrossfade)
