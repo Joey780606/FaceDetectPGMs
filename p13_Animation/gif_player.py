@@ -3,8 +3,9 @@
 import os
 import re
 import random
-from PySide6.QtCore import QObject, Signal, Qt
+from PySide6.QtCore import QObject, Signal, Qt, QSize
 from PySide6.QtGui import QMovie
+from style_constants import GIF_DISPLAY_SIZE
 
 
 class GifPlayer(QObject):
@@ -43,6 +44,8 @@ class GifPlayer(QObject):
                     FullPath = os.path.join(GifDir, FileName)
                     Movie = QMovie(FullPath)
                     Movie.setCacheMode(QMovie.CacheAll)
+                    # 縮放至顯示區尺寸，避免原始尺寸過大被截圖
+                    Movie.setScaledSize(QSize(GIF_DISPLAY_SIZE, GIF_DISPLAY_SIZE))
                     # 觸發 Qt 內部預載
                     Movie.jumpToFrame(0)
                     self._Movies.append(Movie)

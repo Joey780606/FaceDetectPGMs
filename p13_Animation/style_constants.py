@@ -2,10 +2,10 @@
 
 # 視窗尺寸
 WIDGET_WIDTH = 420
-WIDGET_HEIGHT = 620
+WIDGET_HEIGHT = 420
 
 # GIF 顯示區尺寸
-GIF_DISPLAY_SIZE = 400
+GIF_DISPLAY_SIZE = 200
 
 # 過場動畫時間（毫秒）
 CROSSFADE_MS = 80
@@ -20,10 +20,10 @@ ROW2_HEIGHT = 80
 # Row 3 高度
 ROW3_HEIGHT = 60
 
-# 主面板 stylesheet（深色玻璃感）
+# 主面板 stylesheet（全透明）
 STYLE_PANEL = """
     QWidget#MainPanel {
-        background: rgba(25, 25, 35, 200);
+        background: transparent;
         border-radius: 14px;
     }
 """
