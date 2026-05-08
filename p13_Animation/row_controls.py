@@ -21,8 +21,8 @@ class RowControls(QWidget):
         """建立三個按鈕並排版。"""
         try:
             Layout = QHBoxLayout(self)
-            Layout.setContentsMargins(12, 8, 12, 8)
-            Layout.setSpacing(10)
+            Layout.setContentsMargins(8, 6, 8, 6)
+            Layout.setSpacing(4)
 
             # 上一個按鈕
             self._BtnPrev = QPushButton('上一個')

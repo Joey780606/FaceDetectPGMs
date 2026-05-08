@@ -27,7 +27,7 @@
 │  └───────────────────────────────────┘  │
 │  Row 4：GIF 顯示區（200×200，置中）      │
 └─────────────────────────────────────────┘
-視窗：420×420px，透明背景，固定右下角
+視窗：220×420px，透明背景，固定右下角
 面板：全透明、圓角 14px
 ```
 
@@ -102,7 +102,7 @@ GifPlayer.PlaybackCompleted──→ WidgetWindow._onRandomCompleted
 
 | 常數 | 值 | 說明 |
 |------|----|------|
-| WIDGET_WIDTH | 420 | 視窗寬度 |
+| WIDGET_WIDTH | 220 | 視窗寬度 |
 | WIDGET_HEIGHT | 420 | 視窗高度 |
 | GIF_DISPLAY_SIZE | 200 | GIF 顯示區邊長 |
 | CROSSFADE_MS | 80 | 淡入/淡出各 80ms |

@@ -83,7 +83,7 @@ class WidgetWindow(QWidget):
 
             # 左右加邊距，使白底框不貼齊 Panel 邊緣
             ContentBoxRow = QHBoxLayout()
-            ContentBoxRow.setContentsMargins(12, 0, 12, 8)
+            ContentBoxRow.setContentsMargins(10, 0, 10, 8)
             ContentBoxRow.addWidget(self._ContentBox)
             PanelLayout.addLayout(ContentBoxRow)
 

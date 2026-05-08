@@ -1,7 +1,7 @@
 # 視覺設計常數：所有顏色、尺寸、stylesheet 字串集中於此
 
 # 視窗尺寸
-WIDGET_WIDTH = 420
+WIDGET_WIDTH = 220
 WIDGET_HEIGHT = 420
 
 # GIF 顯示區尺寸
@@ -45,8 +45,8 @@ STYLE_BUTTON = """
         border-radius: 8px;
         font-size: 13px;
         font-family: "Microsoft JhengHei", "Microsoft YaHei", sans-serif;
-        padding: 6px 12px;
-        min-height: 28px;
+        padding: 4px 6px;
+        min-height: 24px;
     }
     QPushButton:hover {
         background: rgba(80, 80, 110, 220);
