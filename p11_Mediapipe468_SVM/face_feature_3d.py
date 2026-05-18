@@ -139,7 +139,7 @@ def extractFeatures3D(Landmarks3D: np.ndarray) -> np.ndarray | None:
             return None
 
         # Step 0：建立旋轉矩陣，將所有 landmark 轉回正臉座標系
-        R        = _buildFaceRotationMatrix(Landmarks3D)    # 建旋轉矩陣
+        R        = _buildFaceRotationMatrix(Landmarks3D)    # 建旋轉矩陣, shape=(3, 3)
         NoseTip  = Landmarks3D[_NOSE_TIP_LM_IDX]           # shape=(3,)
         Centered = Landmarks3D - NoseTip                    # shape=(468, 3),平移到鼻尖為原點
         Canonical = (R.T @ Centered.T).T                    # shape=(468, 3),旋轉至正臉座標系

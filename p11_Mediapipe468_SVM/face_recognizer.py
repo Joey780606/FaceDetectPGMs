@@ -63,7 +63,7 @@ class FaceRecognizer:
         self._ModelPath  = ModelPath
         self._Detector   = MpFaceLandmarker()
         # 訓練資料：{人名: {姿態類別(0~4): [特徵向量, ...]}}
-        self._Samples: dict = {}    # 存放訓練樣本的字典，結構為 {PersonName: {PoseCat: [Vec1, Vec2, ...]}}, 每個人在每個姿態類別下的所有特徵向量列表。
+        self._Samples: dict = {}    # 存放訓練樣本的字典，意思:某人,左上角臉,的325個特徵向量. 結構為 {PersonName: {PoseCat: [Vec1, Vec2, ...]}}, 每個人在每個姿態類別下的所有特徵向量列表。 , [Name][PoseCat]
         # 單一分類器
         self._Classifier = None
         # 共用閾值
@@ -242,7 +242,7 @@ class FaceRecognizer:
 
                 for Idx, Name in enumerate(Persons):
                     Name       = str(Name)
-                    PersonMask = (Y == Idx)
+                    PersonMask = (Y == Idx)    # 疑問: Y 和 Idx不是都是數字嗎?回應怎麼是陣列?? 註解: 此人的所有列（由數字來找,由名稱對應的0,1,2(即Y)跟Idx比較的列（布林陣列）. 例如，當 Idx=0 時： PersonMask = [True, False, False]，表示第 0 列是此人的樣本。
                     if Name not in self._Samples:
                         self._Samples[Name] = {}
                     for PoseCat in range(N_POSES):
@@ -277,9 +277,9 @@ class FaceRecognizer:
         (Added: bool, KeyPoints: list, PoseCat: int, Yaw: float, Pitch: float)
         """
         try:
-            Detections = self._Detector.detect(Frame)
+            Detections = self._Detector.detect(Frame)   # detet在 mp_face_landmarker.py 裡面,會回傳一個 list ,裡面每個元素是 (BoundingBox, Landmarks3D, KeyPoints) 的 tuple. 其中 BoundingBox 是 (Top, Right, Bottom, Left)，Landmarks3D 是 (468, 3) 的 numpy array，KeyPoints 是一個 dict 包含雙眼、鼻子、嘴巴的中心像素座標。
             if not Detections:
-                return False, [], POSE_FRONTAL, 0.0, 0.0
+                return False, [], POSE_FRONTAL, 0.0, 0.0 
 
             if PersonName not in self._Samples:
                 self._Samples[PersonName] = {}
@@ -291,10 +291,10 @@ class FaceRecognizer:
             LastPitch     = 0.0
 
             for _, Landmarks3D, KeyPoints in Detections:
-                Vec = extractFeatures3D(Landmarks3D)
+                Vec = extractFeatures3D(Landmarks3D)    # 做468 個 3D landmark ,姿態正規化,萃取出 325 維特徵向量（如果成功）。
                 if Vec is None:
                     continue
-                PoseCat, Yaw, Pitch, _Roll = classifyPoseWithValues(Landmarks3D)
+                PoseCat, Yaw, Pitch, _Roll = classifyPoseWithValues(Landmarks3D)    # 在 face_pose_classifier.py 裡面,會依 468 個 3D landmark 判斷頭部姿態類別（0~4）。同時回傳原始 Yaw / Pitch / Roll 數值（供 UI 顯示與閾值除錯）。PoseCat 是姿態類別，Yaw 是偏航角，Pitch 是俯仰角，Roll 是翻滾角。
                 LastPoseCat = PoseCat
                 LastYaw     = Yaw
                 LastPitch   = Pitch
@@ -302,13 +302,13 @@ class FaceRecognizer:
                 if FrontalOnly and PoseCat != POSE_FRONTAL:
                     continue  # 非正臉不加入訓練集
 
-                if PoseCat not in self._Samples[PersonName]:
+                if PoseCat not in self._Samples[PersonName]:    # 疑問,前面好像擋掉,只有正臉能進到此處對嗎??註解: 這裡是為了確保此人此姿態類別的列表存在，如果之前沒有任何樣本加入過，則建立一個空列表。
                     self._Samples[PersonName][PoseCat] = []
                 self._Samples[PersonName][PoseCat].append(Vec)
-                KeyPointsList.append(KeyPoints)
+                KeyPointsList.append(KeyPoints) # KeyPoints 是一個 dict 包含雙眼、鼻子、嘴巴的中心像素座標。這裡把它加入 KeyPointsList，供 UI 顯示用。
                 Added = True
 
-            if Added and Retrain:
+            if Added and Retrain:   # 疑問:好像沒有Retrain為True的機會
                 self._trainMatcher()
             return Added, KeyPointsList, LastPoseCat, LastYaw, LastPitch
 

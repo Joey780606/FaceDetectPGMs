@@ -10,7 +10,7 @@
 標記區: (不懂,要看)
 = = = = = =
 [程式記錄]
-[face_feature_3d.py] : Ln 174, 取圖,轉正(姿態正規化),找點,正規化, 325 維特徵萃取
+[face_feature_3d.py] : 看完一次,Ln 174, 取圖,轉正(姿態正規化),找點,正規化, 325 維特徵萃取
   def extractFeatures3D(Landmarks3D: np.ndarray) //(不懂,要看)
     1. 旋轉正規化 → 萃取 → 回傳 325 維向量
 	2. # Part B：各關鍵點到鼻尖的正規化距離（‖v_i‖ / 臉部寬度）
@@ -33,7 +33,7 @@
 [face_pose_classifier.py] : Ln 198, (4/30看一次) Signed Yaw / Pitch / Roll → 五類姿態分類（0~4）+ 歪頭偵測
   姿態類別（0~4，供 UI 顯示）:查出是中間,左上,左下,右上,右下
 
-[face_recognizer.py] : 491, (難度高,4/30看到Ln 220) 人類辦識總程式(會用到其他程式),只取正臉,載入/存放npz 檔,批次學習後重新訓練,     SVM真正的fit位置,人臉推論(但主程式在svm_classifier_np.py)
+[face_recognizer.py] : 491, (難度高,5/7看到Ln 319) 人類辦識總程式(會用到其他程式),只取正臉,載入/存放npz 檔,批次學習後重新訓練,     SVM真正的fit位置,人臉推論(但主程式在svm_classifier_np.py)
   def AddSample(self, Frame: np.ndarray, PersonName: str,  (這是偵測人臉的重要起點)
      從 BGR 影像偵測人臉，萃取特徵向量並依姿態類別加入訓練樣本。
 
@@ -446,31 +446,39 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
  .OK. MIN_FACE_WIDTH = 1e-5
  .OK. if Landmarks3D.shape != (468, 3):
  .OK. Centered = Landmarks3D - NoseTip  #這是全468點全對 NoseTip相減嗎?(是的)
- .. Canonical = (R.T @ Centered.T).T 
- .. 像 x, y, z這樣的資料就叫向量嗎?
- .. NormDists = np.linalg.norm(Vecs, axis=1) / FaceWidth    # shape=(25,)
- .. VecNorms = np.linalg.norm(Vecs, axis=1, keepdims=True) #下面三行都不懂
- .. CosMat = np.clip(UnitVecs @ UnitVecs.T, -1.0, 1.0) #下面三行都不懂
+ .難. <<Canonical = (R.T @ Centered.T).T>> 後面來記錄
+ .OK. NormDists = np.linalg.norm(Vecs, axis=1) / FaceWidth    # shape=(25,)
+ .OK. VecNorms = np.linalg.norm(Vecs, axis=1, keepdims=True) #下面三行都不懂 <<shape=(25, 3) / shape=(25, 1),結果會是shape=(25, 3)>>
+ .. <<CosMat = np.clip(UnitVecs @ UnitVecs.T, -1.0, 1.0)>> #下面三行都不懂,有說明
 
 [face_pose_classifier.py] : Ln 198, Signed Yaw / Pitch / Roll → 五類姿態分類（0~4）+ 歪頭偵測
- .. return float(np.arctan2(Dy, Dx)) #比較難
+ .難. return float(np.arctan2(Dy, Dx)) #比較難
  
 [face_recognizer.py]
- .. Data    = np.load(self._ModelPath, allow_pickle=True)
- .. for Idx, Name in enumerate(Persons):
- .. for PoseCat in range(N_POSES):
- .. if PoseMask.any():
+ .OK. Data    = np.load(self._ModelPath, allow_pickle=True)
+ .OK. for Idx, Name in enumerate(Persons):
+ .OK. for PoseCat in range(N_POSES):
+ .OK. if PoseMask.any():
+ .OK. np.savez_compressed(
+ .OK. PersonMask = (Y == Idx)    # 疑問: Y 和 Idx不是都是數字嗎?回應怎麼是陣列?? (應該其中一個是矩陣,所以結果會是針對矩陣處理的結果)
+ .OK. PoseMask = PersonMask & (P == PoseCat)
+ .OK. self._Samples[Name][PoseCat].extend(list(X[PoseMask]))
+ .OK. def AddSample(self, Frame: np.ndarray, PersonName: str,  # 要記錄 np.ndarray 和 str 的型態
+ .OK. if PersonName not in self._Samples:  # not in是可以找 _Samples 的資料嗎?還是是找Key值,取Value值
+ .OK. if PoseCat not in self._Samples[PersonName]:    # 疑問,前面好像擋掉,只有正臉能進到此處對嗎??
+ .OK. if Added and Retrain:   # 疑問:好像沒有Retrain為True的機會
+ .. *** def LoadModel(self) -> bool:  這是function,很難,因為有np.array的觀念,但要學習
  
 [main.py] 看完一次
  有二個class,一個是主class,另一個是 WebcamManager class
- .. from face_recognizer import FaceRecognizer, UNKNOWN_CLASS  #從別隻自己寫的程式import變數
- .. self._CameraIndex = CameraIndex #需為多台Camera多做選擇考慮嗎?
- .. self._ReliableBuffer = deque(maxlen=200)  # 保留最近 200 次正臉 LinearSVC 結果
- .. self._CurrentPhotoImage = None  # 這還有沒有用?
+ .OK. from face_recognizer import FaceRecognizer, UNKNOWN_CLASS  #從別隻自己寫的程式import變數
+ .待做. self._CameraIndex = CameraIndex #需為多台Camera多做選擇考慮嗎?
+ .OK. self._ReliableBuffer = deque(maxlen=200)  # 保留最近 200 次正臉 LinearSVC 結果
+ .OK. self._CurrentPhotoImage = None  # 這還有沒有用?, 避免圖片被GC回收用 
  Ln 161~361 是UI的建立
- .. f"{POSE_NAMES[c]}:{PoseCounts.get(c, 0)}" for c in range(5)  # 組合起來的用法要學
- .. Timestamp = datetime.datetime.now().strftime("%H:%M:%S")
- .. PoseName = POSE_NAMES[PoseCat] if 0 <= PoseCat < len(POSE_NAMES) else "---"
+ .難. f"{POSE_NAMES[c]}:{PoseCounts.get(c, 0)}" for c in range(5)  # 組合起來的用法要學
+ .OK. Timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+ .OK. PoseName = POSE_NAMES[PoseCat] if 0 <= PoseCat < len(POSE_NAMES) else "---"
  .. self._LblPoseStatus.configure(text=Text) 有多種用法,再複習一下\
  .. pass
  .. FrameCopy = Frame.copy()
@@ -509,3 +517,116 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
  .. customtkinter.set_appearance_mode("dark") # 附近都要查
  .. App = MainApp()
  .. App.mainloop()
+ 
+<<Canonical = (R.T @ Centered.T).T>>
+完整程式是以下四行:
+
+
+做座標系轉換，把 468 個 landmark 從攝影機空間旋轉到正臉座標系。
+	R        = _buildFaceRotationMatrix(Landmarks3D)    # 建旋轉矩陣, shape=(3, 3)
+	NoseTip  = Landmarks3D[_NOSE_TIP_LM_IDX]           # shape=(3,)
+	Centered = Landmarks3D - NoseTip                    # shape=(468, 3),平移到鼻尖為原點
+	Canonical = (R.T @ Centered.T).T                    # shape=(468, 3),旋轉至正臉座標系
+		
+  分解說明 : Canonical = (R.T @ Centered.T).T
+  維度追蹤
+  ┌────────┬──────────────────┬──────────┬────────────────────────────┐
+  │  步驟  │       運算       │   形狀   │            說明            │
+  ├────────┼──────────────────┼──────────┼────────────────────────────┤
+  │ 輸入   │ Centered         │ (468, 3) │ 468 個點，每點 (x,y,z)     │
+  ├────────┼──────────────────┼──────────┼────────────────────────────┤
+  │ Step 1 │ Centered.T       │ (3, 468) │ 轉置，讓每欄是一個 3D 點   │
+  ├────────┼──────────────────┼──────────┼────────────────────────────┤
+  │ Step 2 │ R.T @ Centered.T │ (3, 468) │ 矩陣乘法，對每個點套用旋轉 │
+  ├────────┼──────────────────┼──────────┼────────────────────────────┤
+  │ Step 3 │ .T               │ (468, 3) │ 轉回「每列是一個點」的格式 │
+  └────────┴──────────────────┴──────────┴────────────────────────────┘
+
+  為什麼用 R.T 不是 R？
+  _buildFaceRotationMatrix() 建立的 R 的三個欄位是臉部座標軸（X/Y/Z）在攝影機空間的方向向量： (從 攝影機往臉部拍的方向,如果頭是歪的,就是頭歪的結果)
+  更精確地說, R 描述的是：目前這顆頭，相對於攝影機，轉了多少角度（Yaw/Pitch/Roll 三軸）。
+  R.T 就是把那個轉動倒轉回去：
+
+  R = [X_axis | Y_axis | Z_axis]   # 攝影機空間 → 臉部空間的基底
+
+  - R 本身是正交矩陣（orthogonal），所以 R.T = R⁻¹
+  - R.T 的作用就是反向旋轉：把攝影機空間的座標轉換到臉部正規化座標系
+
+  等效寫法
+
+  # 以下三種寫法等價
+  Canonical = (R.T @ Centered.T).T
+  Canonical = Centered @ R          # 更直觀
+  Canonical = np.einsum('ij,kj->ki', R, Centered)
+
+  Centered @ R 最易讀，但作者選用了矩陣轉置的寫法，結果相同。
+
+  目的
+
+  頭往左轉 30° → R 裡的 X 軸就跟著斜了 → R.T 把那個斜補回來 → Canonical
+  裡的所有點看起來就像「正臉朝鏡頭」時的座標。這樣後續的夾角特徵就不受 Yaw/Pitch/Roll 影響。
+  
+<<shape=(25, 3) / shape=(25, 1),結果會是shape=(25, 3)>>
+舉個簡化的例子，用 (3, 3) / (3, 1)：
+  Vecs = np.array([
+      [3, 0, 4],   # norm = 5
+      [1, 1, 0],   # norm = √2 ≈ 1.414
+      [0, 0, 2],   # norm = 2
+  ])  # shape (3, 3)
+
+  VecNorms = np.array([
+      [5.0],
+      [1.414],
+      [2.0],
+  ])  # shape (3, 1)
+
+  廣播時 (3, 1) 自動展開成 (3, 3)：
+
+  [[5.0,   5.0,   5.0  ],  #都變一樣的值
+   [1.414, 1.414, 1.414],
+   [2.0,   2.0,   2.0  ]]
+
+  然後逐元素相除：
+
+  [[3/5,     0/5,     4/5  ],   → [0.6,   0.0,   0.8  ]
+   [1/1.414, 1/1.414, 0/1.414], → [0.707, 0.707, 0.0  ]
+   [0/2,     0/2,     2/2  ]]   → [0.0,   0.0,   1.0  ]
+
+  結果 shape (3, 3)，每一列就是原向量的單位向量（長度 = 1）。
+  
+<<CosMat = np.clip(UnitVecs @ UnitVecs.T, -1.0, 1.0)>>
+  AngMat = np.arccos(CosMat)（第167行）
+  上一行 CosMat = UnitVecs @ UnitVecs.T 算出的是 cosine 矩陣：
+
+  CosMat[i, j] = unit_i · unit_j = cos(θ_ij)
+
+  np.arccos 把 cosine 值反推回弧度角：
+
+  AngMat[i, j] = arccos(cos(θ_ij)) = θ_ij   ← 第 i 點與第 j 點的夾角（0 ~ π）
+
+  結果是一個 (25, 25) 的對稱矩陣，對角線為 0（向量與自己夾角 = 0）：
+
+        點0    點1    點2  ...
+  點0 [  0,   θ01,  θ02, ...]
+  點1 [θ01,    0,   θ12, ...]
+  點2 [θ02,  θ12,    0,  ...]
+  ...
+
+  ---
+  Angles = AngMat[_PAIRS[:, 0], _PAIRS[:, 1]]（第168行）
+
+  這是 NumPy fancy indexing，從 (25,25) 矩陣一次撈出 300 個值。
+
+  _PAIRS shape 是 (300, 2)，長這樣：
+  [[0,1], [0,2], [0,3], ..., [23,24]]
+
+  _PAIRS[:, 0]  # → [0, 0, 0, ..., 23]   shape=(300,)，所有 i
+  _PAIRS[:, 1]  # → [1, 2, 3, ..., 24]   shape=(300,)，所有 j
+
+  AngMat[_PAIRS[:,0], _PAIRS[:,1]] 等同於：
+  [AngMat[0,1], AngMat[0,2], ..., AngMat[23,24]]
+
+  一次取出全部 300 個不重複的夾角，結果 shape (300,)，就是 Part A 的特徵。
+
+  ---
+  整體流程：CosMat → arccos → AngMat（25×25）→ fancy indexing 取上三角 300 個值 → Angles（300,）。
