@@ -531,11 +531,11 @@ class MainApp(customtkinter.CTk):
                 Ok, Frame = self._Webcam.GetLatestFrame()
                 if Ok and Frame is not None:
                     self._InferenceActive = True
-                    FrameCopy = Frame.copy()
+                    FrameCopy = Frame.copy()    # OpenCV cap.read() 回傳的就是 np.ndarray
 
                     def Worker(): # 下方就有Thread呼叫Worker
                         try:
-                            Results = self._Recognizer.Predict(FrameCopy)
+                            Results = self._Recognizer.Predict(FrameCopy)   # 如果圖片中有多張臉，就會有多個 R 結果，Results 是 list of tuple
                             self.after(0, lambda R=Results: self._OnDetectNoneResult(R))
                         except Exception as Error:
                             print(f"[MainApp] DetectNone 推論失敗：{Error}")
@@ -572,7 +572,7 @@ class MainApp(customtkinter.CTk):
             #     - OC-SVM / 低信心 Unknown → 嘗試 buffer fallback
             #   側臉或歪頭 → 判定同一張臉時沿用正臉快取
             StableResults = []
-            for R in Results:
+            for R in Results:   # 如果圖片中有多張臉，就會有多個 R
                 Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll, PreVerifyName = R
                 # PreVerifyName 是 LinearSVC 的原始辨識結果, Name 是 OC-SVM 經過閾值判定後的結果
                 IsRolled  = abs(Roll) > ROLL_THRESH
@@ -582,7 +582,7 @@ class MainApp(customtkinter.CTk):
                     # 新正臉與前一次穩定臉差異過大 → 換人了，清空 buffer
                     if (self._StableFace is not None and
                             not self._isSameFace((Top, Right, Bottom, Left),
-                                                  self._StableFace[0])):
+                                                  self._StableFace[0])):  # self._StableFace是tuple, self._StableFace[0]是之前穩定臉的bbox
                         self._ReliableBuffer.clear()
                         print("[ReliableBuffer] 偵測到不同人臉，清空 buffer")
 

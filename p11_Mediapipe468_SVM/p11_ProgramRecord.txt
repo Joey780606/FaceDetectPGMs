@@ -479,16 +479,16 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
  .難. f"{POSE_NAMES[c]}:{PoseCounts.get(c, 0)}" for c in range(5)  # 組合起來的用法要學
  .OK. Timestamp = datetime.datetime.now().strftime("%H:%M:%S")
  .OK. PoseName = POSE_NAMES[PoseCat] if 0 <= PoseCat < len(POSE_NAMES) else "---"
- .. self._LblPoseStatus.configure(text=Text) 有多種用法,再複習一下\
- .. pass
- .. FrameCopy = Frame.copy()
- .. self.after(DETECT_TICK_MS, self._DetectNoneTick)
- .. if self._StableFaceMiss >= STABLE_FACE_MAX_MISS:  #這個看要不要改為實際上多少秒偵測不到才算Face miss
- .. Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll, PreVerifyName = R #應是把R list的內容都放到前面的變數去,若是,算重要寫法
- ..       not self._isSameFace((Top, Right, Bottom, Left),
-			self._StableFace[0])):	#主要是_StableFace這個有多個??
- .. FallbackName = Counter(self._ReliableBuffer).most_common(1)[0][0]
- .. for R in Results: #這是不是考慮若一張圖裡有許多臉時,所以才這樣寫?
+ .OK1. self._LblPoseStatus.configure(text=Text) 有多種用法,再複習一下\
+ .OK2. pass
+ .OK3. FrameCopy = Frame.copy()
+ .OK4. self.after(DETECT_TICK_MS, self._DetectNoneTick)
+ .OK5. if self._StableFaceMiss >= STABLE_FACE_MAX_MISS:  #這個看要不要改為實際上多少秒偵測不到才算Face miss
+ .OK6. Top, Right, Bottom, Left, Name, Conf, PoseCat, Yaw, Pitch, Roll, PreVerifyName = R #應是把R list的內容都放到前面的變數去,若是,算重要寫法
+ .OK7.       not self._isSameFace((Top, Right, Bottom, Left),
+			self._StableFace[0])):	## self._StableFace是tuple, self._StableFace[0]是之前穩定臉的bbox
+ .OK8. FallbackName = Counter(self._ReliableBuffer).most_common(1)[0][0]
+ .OK9. for R in Results: #一張圖裡有許多臉時,Results 就會有多筆資料
  .. StableBbox, StableName, StableConf = self._StableFace #不懂
  .. if self._isSameFace((Top, Right, Bottom, Left), StableBbox): #主要想了解else是要怎麼辦?
  .. BestResult = max(Results, key=lambda R: R[5]) #不懂
