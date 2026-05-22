@@ -11,9 +11,9 @@ from style_constants import GIF_DISPLAY_SIZE
 class GifPlayer(QObject):
     """管理所有 GIF 的載入、播放與切換。"""
 
-    # 切換完成後發出（傳入新索引）
+    # 切換完成後發出（傳入新索引）,widget_window.py 會用，在過場完成後啟動新 GIF
     GifSwitched = Signal(int)
-    # 當前 GIF 播放完一輪時發出
+    # 當前 GIF 播放完一輪時發出, widget_window.py  會用，觸發下一輪播放（依隨機模式決定下一個索引）
     PlaybackCompleted = Signal()
 
     def __init__(self, Parent=None):

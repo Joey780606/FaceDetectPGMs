@@ -1,6 +1,15 @@
 [C.C處理記錄]
+[程式記錄] 先以5/8 eac2014c92329a10c5769d9652fd1dc44272e7e3 版本為主
+  [gif_bg_remover.py] Ln 271,獨立程式,gif圖檔去背
+  [gif_player.py] Ln 177,GIF <看完一次, 播放引擎
+  [gif_widget.py] Ln 22,GIF <看完一次, widget小工具, 這好像是進入點
+  [row_controls.py] Ln 64, <看完一次, Row 1：控制按鈕列,像UI
+  [row_display.py] Ln 103, <看到Ln 32, GIF 顯示區：QLabel + 淡入淡出過場（opacity=0 瞬間才換 GIF）
+  [row_interaction.py] Ln 152,互動區，三種模式輪流顯示（OK/Cancel、文字輸入、隱藏）
+  [row_label.py] Ln 51,文字顯示 Label，Row 1 任何按鍵按下時追加預設文字
+  [style_constants.py] Ln 187,視覺設計常數：所有顏色、尺寸、stylesheet 字串集中於此
+  [widget_window.py] Ln 173,主視窗：透明浮動視窗，組裝三排 Layout，連接所有訊號
 
-[程式記錄]
 [Q&A]
 [可思考的地方]
 [運作理論整理]
@@ -577,3 +586,50 @@
 2. (Get-WmiObject Win32_Process -Filter "ProcessId=36684").CommandLine
 
 3. 在Windows powerShell執行 Stop-Process -Id 36684
+
+[程式記錄] 先以5/8 eac2014c92329a10c5769d9652fd1dc44272e7e3 版本為主
+		
+[gif_player.py] 看到108, 看完一次
+ .OK. import re
+ .OK. from PySide6.QtCore import QObject, Signal, Qt, QSize
+ .OK. from style_constants import GIF_DISPLAY_SIZE
+ .OK. GifSwitched = Signal(int)	# 切換完成後發出（傳入新索引）
+ .OK. PlaybackCompleted = Signal()	# 當前 GIF 播放完一輪時發出
+ .OK. AllFiles = os.listdir(GifDir)
+ .OK. GifFiles = [F for F in AllFiles if F.lower().endswith('.gif')]	#產生一個list,裡面是檔案結尾為 '.gif' 的檔案
+Match = re.search(r'\((\d+)\)', FileName)
+return int(Match.group(1)) if Match else 9999
+GifFiles.sort(key=extractNumber)
+FullPath = os.path.join(GifDir, FileName)
+Movie = QMovie(FullPath)	# PySide6,還有後面幾行
+Movie.frameChanged.disconnect()	# frameChanged 不知是什麼,但整體看來是把目前撥放的gif結束掉
+self.PlaybackCompleted.emit()
+Index = max(0, min(Index, len(self._Movies) - 1))
+self.PlaybackCompleted.emit()
+self.GifSwitched.emit(Index)
+self.switchTo(NextIndex) #為什麼不是 _switchTo
+NextIndex = random.randint(0, len(self._Movies) - 1)
+
+[gif_widget.py] Ln 22,GIF widget小工具, 這好像是進入點
+App = QApplication(sys.argv) #以及下面三行
+sys.exit(App.exec())
+
+[row_controls.py] Ln 64,Row 1：控制按鈕列,像UI
+PrevRequested  = Signal()
+Layout = QHBoxLayout(self)
+Layout.setContentsMargins(8, 6, 8, 6)
+Layout.setSpacing(4)
+self._BtnPrev = QPushButton('上一個') # 及下面有一些設定
+            self._BtnRandom.setStyleSheet(STYLE_BUTTON)
+            self._BtnRandom.setCursor(Qt.PointingHandCursor)
+            self._BtnRandom.setCheckable(True)
+            self._BtnRandom.toggled.connect(self.RandomToggled)
+		self._BtnClose.setToolTip('關閉程式')
+		
+[row_display.py]
+        self.setFixedSize(GIF_DISPLAY_SIZE, GIF_DISPLAY_SIZE)
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet(STYLE_GIF_LABEL)
+        self._OpacityEffect = QGraphicsOpacityEffect(self)
+        self._OpacityEffect.setOpacity(1.0)
+        self.setGraphicsEffect(self._OpacityEffect)

@@ -209,5 +209,5 @@ __marimo__/
 # Joey design
 TrainPhoto/
 
-# 人臉辨識訓練資料（執行期產生，不納入版本控制）
-info/
+# gif檔
+gif/

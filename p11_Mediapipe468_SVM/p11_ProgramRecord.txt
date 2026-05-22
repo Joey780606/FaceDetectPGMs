@@ -489,22 +489,22 @@ running_mode=mp_vision.RunningMode.IMAGE,   # 同步逐幀模式
 			self._StableFace[0])):	## self._StableFace是tuple, self._StableFace[0]是之前穩定臉的bbox
  .OK8. FallbackName = Counter(self._ReliableBuffer).most_common(1)[0][0]
  .OK9. for R in Results: #一張圖裡有許多臉時,Results 就會有多筆資料
- .. StableBbox, StableName, StableConf = self._StableFace #不懂
- .. if self._isSameFace((Top, Right, Bottom, Left), StableBbox): #主要想了解else是要怎麼辦?
- .. BestResult = max(Results, key=lambda R: R[5]) #不懂
- .. self._DetectNoneDtNames.pop(0)	# List pop
- .. BestName = Counter(self._DetectNoneDtNames).most_common(1)[0][0] # _DetectNoneDtNames好像就一個值,為何還要[0][0]
- .. self.pet.face_detected.emit(f"Hi, {BestName} !") #這可能要跟pet (Michael 程式)看一下
- .. @staticmethod
- .. def _computeIoU(BboxA: tuple, BboxB: tuple) -> float:
- .. FaceSize = max(RightA - LeftA, BottomA - TopA) # 主要是下面說若 < 1,是否也是避免後面除法分母太小
- .. return (Dist / FaceSize) < STABLE_FACE_CENTER_THRESH # 應該是小於臉的一半吧?值是0.5
- .. if PersonName not in KnownPersons: #記錄一下
- .. f"目前已有人物：{', '.join(KnownPersons) if KnownPersons else '（無）'}"
- .. Confirm = MsgBox.askyesno(	# 除了 askyesno,還有別的選項 ,showinfo ,showerror
- .. if not Confirm:
- .. FolderPath = FileDialog.askdirectory(title="選擇 Unknown 訓練圖片目錄")
- .. self.after(0, lambda S=SuccessCount, F=FailCount, T=Total:
+ .OK3-1. StableBbox, StableName, StableConf = self._StableFace #不懂
+ .OK3-2. if self._isSameFace((Top, Right, Bottom, Left), StableBbox): #主要想了解else是要怎麼辦?
+ .OK3-3. BestResult = max(Results, key=lambda R: R[5]) #不懂
+ .OK3-4. self._DetectNoneDtNames.pop(0)	# List pop
+ .OK3-5. BestName = Counter(self._DetectNoneDtNames).most_common(1)[0][0] # _DetectNoneDtNames好像就一個值,為何還要[0][0]
+ .OK3-6,後來用socket,也不用了. self.pet.face_detected.emit(f"Hi, {BestName} !") #這可能要跟pet (Michael 程式)看一下
+ .OK3-7. @staticmethod
+ .OK3-8. def _computeIoU(BboxA: tuple, BboxB: tuple) -> float:
+ .OK4-1. FaceSize = max(RightA - LeftA, BottomA - TopA) # 主要是下面說若 < 1,是否也是避免後面除法分母太小
+ .OK4-2. return (Dist / FaceSize) < STABLE_FACE_CENTER_THRESH # 應該是小於臉的一半吧?值是0.5
+ .OK4-3. if PersonName not in KnownPersons: #記錄一下
+ .OK4-4. f"目前已有人物：{', '.join(KnownPersons) if KnownPersons else '（無）'}"
+ .OK4-5. Confirm = MsgBox.askyesno(	# 除了 askyesno,還有別的選項 ,showinfo ,showerror
+ .OK4-6. if not Confirm:
+ .OK4-7. FolderPath = FileDialog.askdirectory(title="選擇 Unknown 訓練圖片目錄")
+ .OK4-8. self.after(0, lambda S=SuccessCount, F=FailCount, T=Total:
  .. self.after(0, lambda: (  # 後面那行是做什麼?
  .. FilePath = FileDialog.asksaveasfilename(  # askopenfilenames
  .. PersonList = '、'.join(ImportedPersons)
