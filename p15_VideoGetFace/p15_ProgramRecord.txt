@@ -1,0 +1,94 @@
+[C.C處理記錄]
+[程式記錄] 
+[處理的影片]
+= = = =
+
+[處理的影片]
+https://www.youtube.com/watch?v=UNIRvTggWbU 2
+https://www.youtube.com/watch?v=mm9kw9jF7zE 0
+https://www.youtube.com/watch?v=pkR8VxdhhFw 10
+https://www.youtube.com/watch?v=paXZaho1rq0 3
+https://www.youtube.com/watch?v=xqj_PnTHqEo 6
+https://www.youtube.com/watch?v=bWLQHC2lBgA 6
+https://www.youtube.com/watch?v=NB1dIUR26Ys
+https://www.youtube.com/watch?v=Qd-PBFE_MDM 8
+https://www.youtube.com/watch?v=E0PSs9gx-Vc 5
+https://www.youtube.com/watch?v=u7xkOGMw4vY 4
+https://www.youtube.com/watch?v=K7eKPB2LLCc 2
+https://www.youtube.com/watch?v=P6mtLiVlnds
+
+[程式記錄]
+ [main.py]
+ [face_processor.py]
+
+[main.py]
+ .OK4-01. ctk.set_appearance_mode("Dark")
+ .OK4-02. ctk.set_default_color_theme("blue")
+ .OK4-03. self.geometry("580x440")
+ .OK4-04. self.resizable(False, False)
+ .OK4-05. Thread = threading.Thread(
+	   target=self._processingWorker, args=(Url,), daemon=True
+    )
+    Thread.start()
+ .OK4-06. OutputDir = os.path.join(
+	   os.path.dirname(os.path.abspath(__file__)), "face_video"
+    )
+ .OK4-07.             Processor = FaceProcessor(
+		ProgressCallback=lambda Pct, Msg: self.after(
+			0, lambda P=Pct, M=Msg: self._onProgress(P, M)
+		),
+		LogCallback=lambda Msg: self.after(
+			0, lambda M=Msg: self._logMessage(M)
+		),
+	)
+ .OK4-08. SavedFiles = Processor.process(Url, OutputDir)
+ .OK4-09. self.ProgressBar.set(1.0)
+
+
+[face_processor.py]
+ .OK4-10. self.Boxes = {FirstFrameIdx: Box} 
+ .OK4-11. self.IsFrontal[FrameIdx] = IsFrontal
+ .OK4-12. TmpPath = os.path.join(OutputDir, "_tmp_download.mp4")
+ .OK4-13. raise RuntimeError(f"影片下載失敗：{E}")
+ .OK4-14. self._log(f"下載完成：{os.path.basename(VideoPath)}")
+ .OK5-1. Fps = Cap.get(cv2.CAP_PROP_FPS) or 30.0
+ .OK5-2. self._progress(0.9 + 0.1 * I / Total, f"存檔 {I + 1}/{len(TracksF3)}...")
+ .OK5-3. YdlOpts = {
+ .OK5-4. with yt_dlp.YoutubeDL(YdlOpts) as Ydl:
+ .OK5-5. Base = os.path.splitext(os.path.basename(TmpPath))[0]
+ .OK5-6.  if F.startswith(Base) and not F.endswith('.part'):
+		return os.path.join(Dir, F)
+ .OK5-7. ModelPath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "face_landmarker.task")
+ .OK5-8. num_faces=10,
+ .OK5-9. Fps = Cap.get(cv2.CAP_PROP_FPS) or 30.0
+ .OK5-10. TotalFrames = int(Cap.get(cv2.CAP_PROP_FRAME_COUNT))
+ .OK5-11. FrameW = int(Cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+ .OK5-12. FrameH = int(Cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+ .OK5-13. Detector = MpVision.FaceLandmarker.create_from_options(Options)
+ .OK5-14. FrameRgb = cv2.cvtColor(Frame, cv2.COLOR_BGR2RGB)
+ .OK5-15. MpImage = mp.Image(image_format=mp.ImageFormat.SRGB, data=FrameRgb)
+ .OK5-16. Result = Detector.detect_for_video(MpImage, TimestampMs)
+ .OK5-17. Xs = [Lm.x for Lm in FaceLandmarks]
+ .OK5-18. if BoxH < FrameH * self.MIN_FACE_HEIGHT_RATIO:
+ .OK5-19. Box = (X1, Y1, X2 - X1, BoxH)
+ .OK5-20. ClosedTracks.extend(ActiveTracks)
+ .OK5-21. MatchedFaceIdxs = set()
+ .OK5-22. for FaceIdx, (Box, IsFrontal) in enumerate(Faces):
+ .. ToClose = [
+ .. if T.TrackId not in MatchedTrackIds and (FrameIdx - T.LastFrame) > GapFrames
+ .. Ax2, Ay2 = Ax1 + Aw, Ay1 + Ah
+ .. InterArea = max(0, InterX2 - InterX1) * max(0, InterY2 - InterY1)
+ .. UnionArea = Aw * Ah + Bw * Bh - InterArea
+ .. FrontalFrames = sum(1 for V in Track.IsFrontal.values() if V)
+ .. if Track.IsAlone and all(Track.IsAlone.values()):
+ .. W = int(Cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+ .. H = int(Cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+ .. Fourcc = cv2.VideoWriter_fourcc(*'XVID')
+ .. Out = cv2.VideoWriter(OutputPath, Fourcc, Fps, (W, H))
+ .. Cap.set(cv2.CAP_PROP_POS_FRAMES, Track.FirstFrame)
+ .. Out.release()
+ .. Pattern = re.compile(r'^face_(\d+)\.(mp4|avi)$')
+ .. for F in os.listdir(OutputDir):
+ .. M = Pattern.match(F)
+ 
+ 
